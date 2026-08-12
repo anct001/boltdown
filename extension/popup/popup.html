@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <title>IDMClone</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <img src="../icons/icon32.png" alt="" width="24" height="24" />
+      <h1>IDMClone</h1>
+      <span id="status" class="status">...</span>
+    </header>
+
+    <label class="switch">
+      <input type="checkbox" id="enabled" />
+      <span>Bắt link tải xuống</span>
+    </label>
+    <label class="switch">
+      <input type="checkbox" id="captureMedia" />
+      <span>Phát hiện video trên trang</span>
+    </label>
+
+    <section>
+      <h2>Media trên tab này</h2>
+      <ul id="media"></ul>
+    </section>
+
+    <footer>
+      <button id="sendPage">Tải địa chỉ trang hiện tại</button>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

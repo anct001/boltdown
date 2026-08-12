@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+packaging/idmclone.ico
+.pytest_cache/
+*.part
+*.idmdown
+*.db
+*.db-wal
+*.db-shm

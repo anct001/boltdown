@@ -1,0 +1,11 @@
+# Store text with LF and check it out with LF, on every platform. Without this
+# Git for Windows rewrites the working copy to CRLF, which shows up as a diff
+# on every file the moment someone clones on Linux.
+* text=auto eol=lf
+
+# Windows tools that only accept CRLF.
+*.bat text eol=crlf
+*.iss text eol=crlf
+
+*.png binary
+*.ico binary
