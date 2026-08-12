@@ -42,12 +42,36 @@ Hai nút **Hẹn giờ** và **Quét trang web** mở phần hàng đợi và Si
 | ![Tiến độ](docs/screenshots/progress-dialog.png) | ![Thêm URL](docs/screenshots/add-url.png) |
 | ![Thêm hàng loạt](docs/screenshots/batch.png) | ![Hẹn giờ](docs/screenshots/scheduler.png) |
 
-Giao diện dùng bảng màu riêng (`app/ui/theme.py`) và **tự đổi sáng/tối theo
-Windows**; muốn ép một bên thì vào **Tuỳ chọn → Giao diện**. Đổi là thấy ngay,
-không cần khởi động lại. Ảnh chụp trong tài liệu sinh lại được bằng:
+### Bảy bộ giao diện
+
+**Tuỳ chọn → Giao diện** chọn một trong bảy, hoặc để **Theo Windows** cho nó tự
+đổi sáng/tối theo hệ thống. Đổi là thấy ngay, không cần khởi động lại — kể cả
+icon cũng được vẽ lại theo màu mới.
+
+| | | |
+|---|---|---|
+| ![Sáng](docs/screenshots/themes/light.png)<br>**Sáng** | ![Tối](docs/screenshots/themes/dark.png)<br>**Tối** | ![Cyberpunk](docs/screenshots/themes/cyberpunk.png)<br>**Cyberpunk** |
+| ![Neon](docs/screenshots/themes/neon.png)<br>**Neon** | ![Kính mờ](docs/screenshots/themes/glass.png)<br>**Kính mờ** | ![Nord](docs/screenshots/themes/nord.png)<br>**Nord** |
+| ![Dracula](docs/screenshots/themes/dracula.png)<br>**Dracula** | | |
+
+Vài điểm về cách làm:
+
+- Mỗi theme là **một bộ token màu**, không phải một file CSS riêng — cùng một
+  stylesheet sinh ra cho cả bảy, nên thêm theme mới chỉ là thêm mười bốn màu.
+- Có test kiểm **độ tương phản**: chữ trên nền của *mọi* theme phải đạt tối
+  thiểu 4.5:1 (mức AA của WCAG), nên không theme nào đẹp mà khó đọc.
+- **Kính mờ** dùng nền trong suốt thật: app xin Windows 11 dựng lớp *acrylic*
+  qua `DwmSetWindowAttribute`. Máy Windows 10 hoặc bản 11 cũ thì lời gọi đó
+  trượt vô hại và theme lùi về dạng panel mờ, không có blur.
+- Icon được **vẽ bằng QPainter theo màu của theme**: nút Thêm lấy màu success,
+  Tạm dừng lấy warning, Dừng/Xoá lấy danger. Cyberpunk ra hồng tím, Neon ra
+  xanh cyan, không cần bộ icon riêng cho từng theme.
+
+Ảnh chụp trong tài liệu sinh lại được bằng:
 
 ```bash
 .venv/Scripts/python scripts/make_screenshots.py --theme dark
+.venv/Scripts/python scripts/make_screenshots.py --gallery   # bảng bảy theme ở trên
 ```
 
 ## Tích hợp Chrome / Edge

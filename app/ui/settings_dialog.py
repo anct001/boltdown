@@ -85,12 +85,9 @@ class SettingsDialog(QDialog):
         self.language.setCurrentIndex(max(0, index))
 
         self.theme = QComboBox()
-        for label, value in (
-            ("Follow Windows", theme.AUTO),
-            ("Light", theme.LIGHT_NAME),
-            ("Dark", theme.DARK_NAME),
-        ):
-            self.theme.addItem(tr(label), value)
+        self.theme.addItem(tr("Follow Windows"), theme.AUTO)
+        for palette in theme.THEMES.values():
+            self.theme.addItem(tr(palette.label), palette.name)
         self.theme.setCurrentIndex(
             max(0, self.theme.findData(self.settings.get("theme") or theme.AUTO))
         )

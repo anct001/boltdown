@@ -54,9 +54,11 @@ def main(argv: list[str] | None = None) -> int:
     theme.apply(app, settings.get("theme"))
     # "Follow Windows" has to keep following it: repaint when the user flips
     # their system between light and dark while the app is open.
-    app.styleHints().colorSchemeChanged.connect(
-        lambda _scheme: theme.apply(app, settings.get("theme"))
-    )
+    def follow_system(_scheme) -> None:
+        theme.apply(app, settings.get("theme"))
+        window.refresh_icons()
+
+    app.styleHints().colorSchemeChanged.connect(follow_system)
 
     controller = Controller(db, settings)
     controller.start()

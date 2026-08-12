@@ -403,3 +403,104 @@ def test_the_stylesheet_carries_every_token(qapp):
         assert getattr(theme.DARK, token) in sheet
     # A universal QWidget rule is what made Qt re-polish everything.
     assert "QWidget {" not in sheet
+
+
+# ------------------------------------------------------------- theme catalog
+
+
+def test_every_theme_is_complete_and_named():
+    assert set(theme.THEMES) >= {"light", "dark", "cyberpunk", "neon", "glass",
+                                 "nord", "dracula"}
+    for name, palette in theme.THEMES.items():
+        assert palette.name == name
+        assert palette.label
+        for token in ("window", "surface", "surface_alt", "border", "text",
+                      "muted", "accent", "accent_hover", "on_accent", "success",
+                      "warning", "danger", "track", "selection"):
+            colour = palette.color(token)
+            assert colour.isValid(), f"{name}.{token} is not a colour"
+
+
+@pytest.mark.parametrize("name", sorted(theme.THEMES))
+def test_text_stays_readable_on_every_theme(name):
+    """Text on its own background needs real contrast, not just a nice hue."""
+    palette = theme.THEMES[name]
+    for background in ("window", "surface", "surface_alt"):
+        ratio = _contrast(palette.color("text"), palette.color(background))
+        assert ratio >= 4.5, f"{name}: text on {background} is {ratio:.1f}:1"
+    # Muted text is secondary, so the bar is the WCAG large-text one.
+    assert _contrast(palette.color("muted"), palette.color("surface")) >= 3.0
+    assert _contrast(palette.color("on_accent"), palette.color("accent")) >= 3.0
+
+
+def _luminance(colour) -> float:
+    def channel(value: float) -> float:
+        value /= 255
+        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+    r, g, b = colour.red(), colour.green(), colour.blue()
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def _contrast(first, second) -> float:
+    a, b = sorted((_luminance(first), _luminance(second)), reverse=True)
+    return (a + 0.05) / (b + 0.05)
+
+
+def test_only_the_glass_theme_is_translucent():
+    assert theme.GLASS.translucent and theme.GLASS.backdrop == "acrylic"
+    assert not theme.DARK.translucent and theme.DARK.backdrop is None
+    # A translucent palette writes rgba() into the stylesheet, a solid one does not.
+    assert "rgba(" in theme.stylesheet(theme.GLASS)
+    assert "rgba(" not in theme.stylesheet(theme.DARK)
+
+
+def test_unknown_theme_names_fall_back_to_the_system(qapp):
+    assert theme.resolve("nonsense", qapp) in (theme.LIGHT, theme.DARK)
+    assert theme.resolve(None, qapp) in (theme.LIGHT, theme.DARK)
+    assert theme.resolve("cyberpunk", qapp) is theme.CYBERPUNK
+
+
+def test_the_backdrop_call_never_raises(qapp):
+    from PySide6.QtWidgets import QWidget
+
+    widget = QWidget()
+    try:
+        assert theme.apply_backdrop(widget, theme.GLASS) in (True, False)
+    finally:
+        widget.deleteLater()
+
+
+# ------------------------------------------------------------------- icons
+
+
+def test_every_icon_draws_something(qapp):
+    from app.ui import icons
+
+    names = [n for n in dir(icons) if n.endswith("_icon")]
+    assert len(names) > 20
+    for name in names:
+        function = getattr(icons, name)
+        icon = function("Video") if name in ("category_icon", "filter_icon") else function()
+        assert not icon.pixmap(32, 32).isNull(), name
+
+
+def test_icons_follow_the_theme_accent(qapp):
+    from app.ui import icons
+
+    def middle(icon):
+        image = icon.pixmap(32, 32).toImage()
+        return {image.pixelColor(x, y).name()
+                for x in range(32) for y in range(32)
+                if image.pixelColor(x, y).alpha() > 200}
+
+    try:
+        theme.apply(qapp, "cyberpunk")
+        pink = middle(icons.batch_icon())
+        theme.apply(qapp, "neon")
+        cyan = middle(icons.batch_icon())
+        assert theme.CYBERPUNK.accent in pink
+        assert theme.NEON.accent in cyan
+        assert pink != cyan
+    finally:
+        theme.apply(qapp, "auto")

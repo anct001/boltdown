@@ -25,9 +25,13 @@ OFFSCREEN = (-4000, -4000)
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--theme", default="dark", choices=("dark", "light"))
+    parser.add_argument("--theme", default="dark")
     parser.add_argument("--out", default=str(PROJECT_ROOT / "docs" / "screenshots"))
     parser.add_argument("--work-dir", default=None)
+    parser.add_argument(
+        "--gallery", action="store_true",
+        help="one main-window shot per theme, into <out>/themes/",
+    )
     args = parser.parse_args(argv)
 
     work = Path(args.work_dir) if args.work_dir else Path(
@@ -100,6 +104,23 @@ def main(argv: list[str] | None = None) -> int:
     controller.add(f"{base}/demo/ban-ke-hoach.pdf", filename="báo cáo quý 4.pdf")
     controller.add(f"{base}/demo/phim-tap-2.mkv", start_now=False)
     pump(9)
+
+    if args.gallery:
+        gallery = out / "themes"
+        gallery.mkdir(parents=True, exist_ok=True)
+        print("theme gallery:")
+        for name, palette in theme.THEMES.items():
+            theme.apply(app, name)
+            window.refresh_icons()
+            pump(0.8)
+            path = gallery / f"{name}.png"
+            window.grab().save(str(path))
+            print(f"  {palette.label:<12} {path.name:<16} {path.stat().st_size // 1024} KB")
+        controller.shutdown()
+        db.close()
+        server.stop()
+        print(f"\nwrote {len(theme.THEMES)} theme shots to {gallery}")
+        return 0
 
     print("screenshots:")
     shot(window, "main-window")

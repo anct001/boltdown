@@ -33,7 +33,7 @@ from ..media.detect import classify
 from ..storage.settings import Settings
 from ..util import power
 from ..util.fmt import human_speed
-from . import icons
+from . import icons, theme
 from .add_url_dialog import AddUrlDialog
 from .batch_dialog import BatchDialog
 from .checksum_dialog import ChecksumDialog
@@ -128,7 +128,7 @@ class MainWindow(QMainWindow):
         self.action_pause_all = QAction(icons.stop_icon(), tr("Pause All"), self)
         self.action_pause_all.triggered.connect(self.controller.pause_all)
 
-        self.action_resume_all = QAction(tr("Resume All"), self)
+        self.action_resume_all = QAction(icons.resume_all_icon(), tr("Resume All"), self)
         self.action_resume_all.triggered.connect(self.controller.resume_all)
 
         self.action_delete = QAction(icons.delete_icon(), tr("Delete"), self)
@@ -151,22 +151,22 @@ class MainWindow(QMainWindow):
         self.action_history = QAction(icons.history_icon(), tr("History"), self)
         self.action_history.triggered.connect(self.open_history)
 
-        self.action_dropbox = QAction(tr("Drop box"), self)
+        self.action_dropbox = QAction(icons.dropbox_icon(), tr("Drop box"), self)
         self.action_dropbox.setCheckable(True)
         self.action_dropbox.setChecked(bool(self.settings.get("dropbox_visible")))
         self.action_dropbox.toggled.connect(self.toggle_dropbox)
 
-        self.action_clipboard = QAction(tr("Watch the clipboard"), self)
+        self.action_clipboard = QAction(icons.clipboard_icon(), tr("Watch the clipboard"), self)
         self.action_clipboard.setCheckable(True)
         self.action_clipboard.setChecked(bool(self.settings.get("clipboard_monitor")))
         self.action_clipboard.toggled.connect(self.toggle_clipboard)
 
-        self.action_paste = QAction(tr("Paste URL from clipboard"), self)
+        self.action_paste = QAction(icons.link_icon(), tr("Paste URL from clipboard"), self)
         self.action_paste.setShortcut(QKeySequence.StandardKey.Paste)
         self.action_paste.triggered.connect(self.paste_url)
         self.addAction(self.action_paste)
 
-        self.action_exit = QAction(tr("Exit"), self)
+        self.action_exit = QAction(icons.exit_icon(), tr("Exit"), self)
         self.action_exit.triggered.connect(self.quit_application)
 
     def _build_toolbar(self) -> None:
@@ -229,18 +229,22 @@ class MainWindow(QMainWindow):
         ):
             node = QTreeWidgetItem([tr(label)])
             node.setData(0, FILTER_ROLE, (kind, value))
+            node.setIcon(0, icons.filter_icon(kind))
             self.tree.addTopLevelItem(node)
         categories = QTreeWidgetItem([tr("Downloads")])
         categories.setData(0, FILTER_ROLE, ("all", ""))
+        categories.setIcon(0, icons.folder_icon())
         for name in (*CATEGORIES.keys(), GENERAL):
             child = QTreeWidgetItem([tr(name)])
             child.setData(0, FILTER_ROLE, ("category", name))
+            child.setIcon(0, icons.category_icon(name))
             categories.addChild(child)
         self.tree.addTopLevelItem(categories)
         categories.setExpanded(True)
 
         self.queue_root = QTreeWidgetItem([tr("Queues")])
         self.queue_root.setData(0, FILTER_ROLE, ("all", ""))
+        self.queue_root.setIcon(0, icons.queue_icon())
         self.tree.addTopLevelItem(self.queue_root)
         self._rebuild_queue_nodes()
 
@@ -390,6 +394,48 @@ class MainWindow(QMainWindow):
             return
         self.controller.engine.set_speed_limit(self.settings.speed_limit)
         self.controller.engine.max_concurrent = self.settings.max_concurrent
+        self.refresh_icons()
+        self.action_clipboard.setChecked(bool(self.settings.get("clipboard_monitor")))
+
+    def refresh_icons(self) -> None:
+        """Redraw every glyph in the new theme's accent colour.
+
+        Icons are painted, not loaded, so a theme change means repainting them
+        - otherwise a Cyberpunk window would keep the blue arrows of Dark.
+        """
+        for action, icon in (
+            (self.action_add, icons.add_icon()),
+            (self.action_batch, icons.batch_icon()),
+            (self.action_resume, icons.download_icon()),
+            (self.action_pause, icons.pause_icon()),
+            (self.action_pause_all, icons.stop_icon()),
+            (self.action_resume_all, icons.resume_all_icon()),
+            (self.action_delete, icons.delete_icon()),
+            (self.action_options, icons.settings_icon()),
+            (self.action_scheduler, icons.clock_icon()),
+            (self.action_grabber, icons.globe_icon()),
+            (self.action_history, icons.history_icon()),
+            (self.action_dropbox, icons.dropbox_icon()),
+            (self.action_clipboard, icons.clipboard_icon()),
+            (self.action_paste, icons.link_icon()),
+            (self.action_exit, icons.exit_icon()),
+        ):
+            action.setIcon(icon)
+
+        for row, kind in enumerate(("all", "unfinished", "finished")):
+            self.tree.topLevelItem(row).setIcon(0, icons.filter_icon(kind))
+        categories = self.tree.topLevelItem(3)
+        categories.setIcon(0, icons.folder_icon())
+        for index in range(categories.childCount()):
+            child = categories.child(index)
+            payload = child.data(0, FILTER_ROLE) or ("", "")
+            child.setIcon(0, icons.category_icon(payload[1]))
+        self.queue_root.setIcon(0, icons.queue_icon())
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # The blurred backdrop can only be asked for once the window exists.
+        theme.apply_backdrop(self)
 
     def show_properties(self, item: DownloadItem) -> None:
         dialog = self._progress_dialogs.get(item.db_id)
@@ -551,22 +597,24 @@ class MainWindow(QMainWindow):
         item = items[0]
         menu = QMenu(self)
         if item.state is TaskState.COMPLETED:
-            menu.addAction(tr("Open"), lambda: self._open_file(item))
-        menu.addAction(tr("Open Folder"), lambda: self._open_folder(item))
+            menu.addAction(icons.open_file_icon(), tr("Open"), lambda: self._open_file(item))
+        menu.addAction(icons.folder_icon(), tr("Open Folder"), lambda: self._open_folder(item))
         menu.addSeparator()
         if item.is_live:
             menu.addAction(icons.pause_icon(), tr("Pause"), self.pause_selected)
         else:
             menu.addAction(icons.download_icon(), tr("Resume"), self.resume_selected)
-        menu.addAction(tr("Redownload"), lambda: self.controller.redownload(item.db_id))
+        menu.addAction(icons.refresh_icon(), tr("Redownload"),
+                       lambda: self.controller.redownload(item.db_id))
         self._add_queue_menu(menu, items)
         menu.addSeparator()
-        menu.addAction(tr("Copy URL"), lambda: self._copy_url(item))
+        menu.addAction(icons.link_icon(), tr("Copy URL"), lambda: self._copy_url(item))
         if item.state is TaskState.COMPLETED:
             menu.addAction(
-                tr("Verify checksum"), lambda: self.verify_checksum(item)
+                icons.shield_icon(), tr("Verify checksum"),
+                lambda: self.verify_checksum(item),
             )
-        menu.addAction(tr("Properties"), lambda: self.show_properties(item))
+        menu.addAction(icons.info_icon(), tr("Properties"), lambda: self.show_properties(item))
         menu.addSeparator()
         menu.addAction(icons.delete_icon(), tr("Delete"), self.delete_selected)
         menu.exec(self.table.viewport().mapToGlobal(position))
@@ -581,7 +629,7 @@ class MainWindow(QMainWindow):
         queues = self.controller.queues()
         if not queues:
             return
-        submenu = menu.addMenu(tr("Move to queue"))
+        submenu = menu.addMenu(icons.queue_icon(), tr("Move to queue"))
         for info in queues:
             action = submenu.addAction(info.name)
             action.setCheckable(True)

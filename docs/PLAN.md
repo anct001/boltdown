@@ -283,6 +283,20 @@ Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thư�
   đang tải thật; cửa sổ đặt ngoài màn hình thay vì dùng nền `offscreen` (nền đó
   không có font, chữ ra ô vuông).
 
+**Bổ sung sau đó — bảy theme và icon vẽ theo theme:**
+
+- `theme.THEMES` là sổ đăng ký: Sáng, Tối, Cyberpunk, Neon, Kính mờ, Nord,
+  Dracula. Thêm một theme = thêm mười bốn màu, không đụng vào stylesheet.
+- Test canh **độ tương phản WCAG AA** cho chữ trên cả ba loại nền của từng
+  theme, nên không có bộ màu nào "đẹp mà mù chữ".
+- Theme Kính mờ đặt `opacity < 255` (stylesheet tự chuyển sang `rgba()`) và xin
+  Windows 11 lớp acrylic qua `DwmSetWindowAttribute`; máy cũ thì lời gọi trượt
+  và giao diện lùi về panel mờ.
+- Icon vẽ bằng QPainter và **lấy màu từ token ngữ nghĩa** (`success` cho Thêm,
+  `warning` cho Tạm dừng, `danger` cho Dừng/Xoá), nên đổi theme là icon đổi
+  theo — `MainWindow.refresh_icons()` vẽ lại toàn bộ, kể cả icon từng danh mục
+  ở cây bên trái.
+
 ## 11. Lộ trình theo giai đoạn
 
 | Giai đoạn | Nội dung | Kết quả kiểm chứng được |

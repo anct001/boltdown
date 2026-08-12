@@ -209,6 +209,11 @@ _VI: dict[str, str] = {
     "Follow Windows": "Theo Windows",
     "Light": "Sáng",
     "Dark": "Tối",
+    "Cyberpunk": "Cyberpunk",
+    "Neon": "Neon",
+    "Glass": "Kính mờ",
+    "Nord": "Nord",
+    "Dracula": "Dracula",
     # clipboard
     "Clipboard": "Clipboard",
     "Watch the clipboard": "Theo dõi clipboard",

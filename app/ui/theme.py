@@ -20,6 +20,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
+from ..util.log import get_logger
+
+log = get_logger(__name__)
+
 AUTO, LIGHT_NAME, DARK_NAME = "auto", "light", "dark"
 
 
@@ -28,6 +32,8 @@ class Palette:
     """Every colour the application is allowed to use."""
 
     name: str
+    label: str           # shown in the theme picker
+    dark: bool
     window: str          # behind everything
     surface: str         # panels, tables, inputs
     surface_alt: str     # headers, alternating rows, hover
@@ -42,10 +48,19 @@ class Palette:
     danger: str
     track: str           # progress bar / graph background
     selection: str
+    #: 0-255: how solid panels are. Below 255 the window shows through, which
+    #: is what makes the glass themes glass.
+    opacity: int = 255
+    #: Windows 11 backdrop to ask the compositor for: "mica" or "acrylic".
+    backdrop: str | None = None
 
     @property
     def is_dark(self) -> bool:
-        return self.name == DARK_NAME
+        return self.dark
+
+    @property
+    def translucent(self) -> bool:
+        return self.opacity < 255
 
     def color(self, token: str) -> QColor:
         return QColor(getattr(self, token))
@@ -55,9 +70,17 @@ class Palette:
         c.setAlpha(alpha)
         return c
 
+    def css(self, token: str, alpha: int | None = None) -> str:
+        """A colour for the stylesheet, honouring the theme's opacity."""
+        c = self.color(token)
+        value = self.opacity if alpha is None else alpha
+        if value >= 255:
+            return c.name()
+        return f"rgba({c.red()}, {c.green()}, {c.blue()}, {value / 255:.3f})"
+
 
 DARK = Palette(
-    name=DARK_NAME,
+    name=DARK_NAME, label="Dark", dark=True,
     window="#12141a",
     surface="#191c24",
     surface_alt="#212736",
@@ -75,7 +98,7 @@ DARK = Palette(
 )
 
 LIGHT = Palette(
-    name=LIGHT_NAME,
+    name=LIGHT_NAME, label="Light", dark=False,
     window="#f4f6fa",
     surface="#ffffff",
     surface_alt="#eef1f7",
@@ -91,6 +114,106 @@ LIGHT = Palette(
     track="#e2e7f0",
     selection="#dbe6ff",
 )
+
+#: Blade Runner by way of a download manager: violet night, magenta signage.
+CYBERPUNK = Palette(
+    name="cyberpunk", label="Cyberpunk", dark=True,
+    window="#0d0716",
+    surface="#160d26",
+    surface_alt="#1f1236",
+    border="#3b1f63",
+    text="#f2e9ff",
+    muted="#a98fc9",
+    accent="#ff2e97",
+    accent_hover="#ff5fb0",
+    on_accent="#12001f",
+    success="#00f5d4",
+    warning="#ffd166",
+    danger="#ff4d6d",
+    track="#241340",
+    selection="#3a1a5e",
+)
+
+#: Pure black with electric cyan - the "neon sign at 3am" look.
+NEON = Palette(
+    name="neon", label="Neon", dark=True,
+    window="#05070a",
+    surface="#0b1016",
+    surface_alt="#111a24",
+    border="#1d3547",
+    text="#e8fbff",
+    muted="#7fa8bd",
+    accent="#00e5ff",
+    accent_hover="#5cf2ff",
+    on_accent="#00232b",
+    success="#39ff14",
+    warning="#ffe14d",
+    danger="#ff3864",
+    track="#0f1d28",
+    selection="#0c3a4a",
+)
+
+#: Frosted panels over the desktop; Windows 11 supplies the actual blur.
+GLASS = Palette(
+    name="glass", label="Glass", dark=True,
+    window="#0f1420",
+    surface="#1a2233",
+    surface_alt="#243049",
+    border="#3a4763",
+    text="#eef2fb",
+    muted="#a7b4cd",
+    accent="#6ea8fe",
+    accent_hover="#8dbcff",
+    on_accent="#0a1020",
+    success="#5ee2a0",
+    warning="#ffcc66",
+    danger="#ff7b8a",
+    track="#26314a",
+    selection="#314060",
+    opacity=200,
+    backdrop="acrylic",
+)
+
+NORD = Palette(
+    name="nord", label="Nord", dark=True,
+    window="#2e3440",
+    surface="#3b4252",
+    surface_alt="#434c5e",
+    border="#4c566a",
+    text="#eceff4",
+    muted="#a2adbe",
+    accent="#88c0d0",
+    accent_hover="#8fbcbb",
+    on_accent="#22272f",
+    success="#a3be8c",
+    warning="#ebcb8b",
+    danger="#bf616a",
+    track="#434c5e",
+    selection="#4c566a",
+)
+
+DRACULA = Palette(
+    name="dracula", label="Dracula", dark=True,
+    window="#282a36",
+    surface="#2f3240",
+    surface_alt="#383b4a",
+    border="#4b4f66",
+    text="#f8f8f2",
+    muted="#a7abbe",
+    accent="#bd93f9",
+    accent_hover="#d0aeff",
+    on_accent="#1d1e26",
+    success="#50fa7b",
+    warning="#f1fa8c",
+    danger="#ff5555",
+    track="#3a3d4d",
+    selection="#44475a",
+)
+
+#: name -> palette, in the order the picker shows them
+THEMES: dict[str, Palette] = {
+    p.name: p for p in (LIGHT, DARK, CYBERPUNK, NEON, GLASS, NORD, DRACULA)
+}
 
 _current: Palette = LIGHT
 
@@ -121,10 +244,9 @@ def system_is_dark(app: QApplication | None = None) -> bool:
 
 
 def resolve(preference: str | None, app: QApplication | None = None) -> Palette:
-    if preference == LIGHT_NAME:
-        return LIGHT
-    if preference == DARK_NAME:
-        return DARK
+    """Turn a stored preference into a palette; unknown names follow Windows."""
+    if preference in THEMES:
+        return THEMES[preference]
     return DARK if system_is_dark(app) else LIGHT
 
 
@@ -173,11 +295,11 @@ def stylesheet(p: Palette) -> str:
 
     /* ---------------------------------------------------------- chrome */
     QMenuBar {{ background: {p.window}; padding: 2px 4px; }}
-    QMainWindow, QDialog {{ background: {p.window}; }}
+    QMainWindow, QDialog {{ background: {p.css('window')}; }}
     QMenuBar::item {{ padding: 5px 10px; border-radius: 6px; }}
     QMenuBar::item:selected {{ background: {p.surface_alt}; }}
     QMenu {{
-        background: {p.surface};
+        background: {p.css('surface')};
         border: 1px solid {p.border};
         border-radius: 8px;
         padding: 4px;
@@ -187,7 +309,7 @@ def stylesheet(p: Palette) -> str:
     QMenu::separator {{ height: 1px; background: {p.border}; margin: 4px 8px; }}
 
     QToolBar {{
-        background: {p.surface};
+        background: {p.css('surface')};
         border: 0;
         border-bottom: 1px solid {p.border};
         padding: 6px 8px;
@@ -207,14 +329,14 @@ def stylesheet(p: Palette) -> str:
     QToolBar QToolButton:disabled {{ color: {p.muted}; }}
     QToolBar::separator {{ background: {p.border}; width: 1px; margin: 6px 6px; }}
 
-    QStatusBar {{ background: {p.surface}; border-top: 1px solid {p.border}; }}
+    QStatusBar {{ background: {p.css('surface')}; border-top: 1px solid {p.border}; }}
     QStatusBar QLabel {{ color: {p.muted}; padding: 0 6px; }}
     QSplitter::handle {{ background: {p.window}; width: 4px; }}
     QSplitter::handle:hover {{ background: {p.accent}; }}
 
     /* ----------------------------------------------------------- lists */
     QTreeWidget, QTreeView, QTableView, QListWidget {{
-        background: {p.surface};
+        background: {p.css('surface')};
         alternate-background-color: {p.surface_alt};
         border: 1px solid {p.border};
         border-radius: 10px;
@@ -234,7 +356,7 @@ def stylesheet(p: Palette) -> str:
     QTableView {{ gridline-color: {p.border}; }}
     QTableView::item {{ padding: 4px 6px; }}
     QHeaderView::section {{
-        background: {p.surface_alt};
+        background: {p.css('surface_alt')};
         color: {p.muted};
         border: 0;
         border-right: 1px solid {p.border};
@@ -246,7 +368,7 @@ def stylesheet(p: Palette) -> str:
 
     /* ---------------------------------------------------------- inputs */
     QLineEdit, QSpinBox, QComboBox, QTimeEdit, QPlainTextEdit, QTextEdit {{
-        background: {p.surface};
+        background: {p.css('surface')};
         border: 1px solid {p.border};
         border-radius: 8px;
         padding: 6px 8px;
@@ -356,10 +478,56 @@ def stylesheet(p: Palette) -> str:
     """
 
 
+#: DwmSetWindowAttribute constants (Windows 11 22H2 and later)
+_DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+_DWMWA_SYSTEMBACKDROP_TYPE = 38
+_BACKDROPS = {"none": 1, "mica": 2, "acrylic": 3, "tabbed": 4}
+
+
+def apply_backdrop(window, palette: Palette | None = None) -> bool:
+    """Ask Windows for a blurred backdrop behind `window`.
+
+    This is the real thing - the compositor blurs whatever is behind the
+    window - and it only exists on Windows 11 22H2+. Anywhere else the call
+    fails harmlessly and the theme still looks like frosted panels, just
+    without the blur.
+    """
+    import sys
+
+    palette = palette or _current
+    if sys.platform != "win32":  # pragma: no cover - Windows only feature
+        return False
+    try:
+        import ctypes
+
+        hwnd = int(window.winId())
+        dwm = ctypes.windll.dwmapi
+        dark = ctypes.c_int(1 if palette.is_dark else 0)
+        dwm.DwmSetWindowAttribute(
+            hwnd, _DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(dark), 4
+        )
+        kind = ctypes.c_int(_BACKDROPS.get(palette.backdrop or "none", 1))
+        result = dwm.DwmSetWindowAttribute(
+            hwnd, _DWMWA_SYSTEMBACKDROP_TYPE, ctypes.byref(kind), 4
+        )
+        return result == 0
+    except Exception as exc:  # noqa: BLE001 - cosmetic, never fatal
+        log.debug("no system backdrop: %s", exc)
+        return False
+
+
 def apply(app: QApplication, preference: str | None = AUTO) -> Palette:
     """Paint the application with `preference` and remember the result."""
     global _current
     _current = resolve(preference, app)
     app.setPalette(qpalette(_current))
     app.setStyleSheet(stylesheet(_current))
+    for window in app.topLevelWidgets():
+        # Translucency has to be on before the backdrop shows through, and
+        # off again when switching back to a solid theme.
+        window.setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground, _current.translucent
+        )
+        if window.isVisible():
+            apply_backdrop(window, _current)
     return _current
