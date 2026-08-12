@@ -30,7 +30,14 @@ from ..core.categories import target_dir
 from ..core.errors import CancelledByUser, DownloadError, FatalError
 from ..core.http_client import build_client
 from ..core.ratelimit import ChainedBucket, TokenBucket
-from ..core.task import DownloadRequest, TaskRunner, TaskSnapshot, TaskState
+from ..core.task import (
+    DownloadRequest,
+    TaskRunner,
+    TaskSnapshot,
+    TaskState,
+    release_path,
+    reserve_path,
+)
 from ..util import filenames
 from ..util.log import get_logger
 from . import ffmpeg as ffmpeg_mod
@@ -173,6 +180,7 @@ class MediaTaskRunner:
             monitor.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await monitor
+            release_path(self._work_dir)
         return self.state
 
     # ------------------------------------------------------------------- HLS
@@ -381,29 +389,38 @@ class MediaTaskRunner:
     # ---------------------------------------------------------------- helpers
 
     def _prepare_output(self, name: str) -> Path:
-        """Pick the destination and the work directory that sits next to it."""
+        """Pick a destination nobody else is writing, and reserve it.
+
+        The work directory is named after the final file, so the choice has to
+        be made once and stick: a resumed download must land on the same name
+        it picked the first time, and a second copy of the same video must not
+        share the first one's scratch directory.
+        """
         self.filename = filenames.sanitize(name)
         directory = target_dir(
             Path(self.request.save_dir), self.filename, self.request.use_categories
         )
         directory.mkdir(parents=True, exist_ok=True)
-        output = directory / self.filename
-        # Resolve the collision once, up front: the work directory is named
-        # after the final file, so a resumed download must land on the same
-        # name it picked the first time.
-        work = directory / (Path(self.filename).stem + WORK_SUFFIX)
-        if output.exists() and not work.exists():
-            output = filenames.unique_path(output)
-            work = directory / (output.stem + WORK_SUFFIX)
-            self.filename = output.name
-        work.mkdir(parents=True, exist_ok=True)
-        self._work_dir = work
-        self.dest_path = output
-        return output
+
+        for candidate in filenames.variants(self.filename):
+            output = directory / candidate
+            work = directory / (Path(candidate).stem + WORK_SUFFIX)
+            if not reserve_path(work):
+                continue  # another media task is using it right now
+            if work.exists() or not output.exists():
+                # Either our own leftovers to resume into, or a free name.
+                work.mkdir(parents=True, exist_ok=True)
+                self.filename = candidate
+                self._work_dir = work
+                self.dest_path = output
+                return output
+            release_path(work)  # a finished file already owns that name
+        raise FatalError(f"no free file name near {directory / self.filename}")
 
     def _cleanup_work_dir(self) -> None:
         if self._work_dir is None:
             return
         with contextlib.suppress(OSError):
             shutil.rmtree(self._work_dir)
+        release_path(self._work_dir)
         self._work_dir = None

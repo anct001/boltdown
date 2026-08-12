@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 from ..util.paths import db_path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS downloads (
     category    TEXT,
     connections INTEGER NOT NULL DEFAULT 8,
     speed_limit INTEGER,
+    -- 1 = the file name is settled (user typed it, or a probe already picked
+    -- it and a .part file carries it); 0 = let the next probe decide.
+    name_locked INTEGER NOT NULL DEFAULT 0,
     queue_id    INTEGER REFERENCES queues(id) ON DELETE SET NULL,
     error       TEXT,
     added_at    REAL NOT NULL,
@@ -132,6 +135,17 @@ class Database:
             for column, decl in (("stop_at", "TEXT"), ("last_run", "REAL")):
                 if column not in existing:
                     self.execute(f"ALTER TABLE schedules ADD COLUMN {column} {decl}")
+        if version < 3:
+            existing = {r["name"] for r in self.query("PRAGMA table_info(downloads)")}
+            if "name_locked" not in existing:
+                self.execute(
+                    "ALTER TABLE downloads ADD COLUMN name_locked "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+                # Anything already downloading has a .part file named after it.
+                self.execute(
+                    "UPDATE downloads SET name_locked = 1 WHERE downloaded > 0"
+                )
         self.execute(
             "UPDATE meta SET value = ? WHERE key = 'schema_version'",
             (str(SCHEMA_VERSION),),
@@ -169,6 +183,7 @@ class Database:
         category: str | None = None,
         connections: int = 8,
         speed_limit: int | None = None,
+        name_locked: bool = False,
         queue_id: int | None = None,
         headers: dict[str, str] | None = None,
         cookie: str | None = None,
@@ -180,10 +195,10 @@ class Database:
             cur = self._conn.execute(
                 """INSERT INTO downloads
                    (url, filename, save_path, size, state, category, connections,
-                    speed_limit, queue_id, added_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    speed_limit, name_locked, queue_id, added_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (url, filename, save_path, size, state, category, connections,
-                 speed_limit, queue_id, time.time()),
+                 speed_limit, int(name_locked), queue_id, time.time()),
             )
             download_id = int(cur.lastrowid)
             if any((headers, cookie, referer, user_agent, proxy)):

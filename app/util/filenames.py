@@ -75,14 +75,26 @@ def from_url(url: str) -> str | None:
     return sanitize(name)
 
 
+def variants(name: str, limit: int = 10000):
+    """Yield `report.pdf`, `report (1).pdf`, `report (2).pdf`, ...
+
+    The naming a download manager needs in two places: picking a free file
+    name before writing, and picking a free one again at the finish line.
+    """
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        stem, ext = name, ""
+    suffix = f".{ext}" if ext else ""
+    yield name
+    for i in range(1, limit):
+        yield f"{stem} ({i}){suffix}"
+
+
 def unique_path(path: Path) -> Path:
     """Return `path`, or `name (n).ext` if something is already there."""
-    if not path.exists():
-        return path
-    stem, ext = path.stem, path.suffix
     parent = path.parent
-    for i in range(1, 10000):
-        candidate = parent / f"{stem} ({i}){ext}"
-        if not candidate.exists():
-            return candidate
+    for candidate in variants(path.name):
+        target = parent / candidate
+        if not target.exists():
+            return target
     raise FileExistsError(f"cannot find a free name near {path}")

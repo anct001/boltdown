@@ -270,3 +270,67 @@ async def test_speed_limit_is_respected(server, tmp_path):
     assert runner.state is TaskState.COMPLETED
     assert elapsed >= 1.0, f"1.5 MB at 700 KB/s should take >1s, took {elapsed:.2f}s"
     assert sha256(runner.dest_path) == sha256(data)
+
+
+# ----------------------------------------------------- names and collisions
+
+
+async def test_two_downloads_of_the_same_file_do_not_share_a_part_file(server, tmp_path):
+    """The bug: both tasks wrote `report.pdf.part`, the loser died on rename."""
+    data = make_payload(512 * 1024, seed=930)
+    url = server.add_file("collide/report.pdf", data)
+
+    first = TaskRunner(1, _request(f"{url}?slow=2", tmp_path))
+    second = TaskRunner(2, _request(url, tmp_path))
+    states = await asyncio.gather(first.run(), second.run())
+
+    assert states == [TaskState.COMPLETED, TaskState.COMPLETED]
+    names = sorted(p.name for p in tmp_path.iterdir())
+    assert names == ["report (1).pdf", "report.pdf"]
+    for name in names:
+        assert sha256(tmp_path / name) == sha256(data)
+    assert not list(tmp_path.glob("*.part"))
+    assert not list(tmp_path.glob("*.idmdown"))
+
+
+async def test_a_finished_file_is_never_overwritten(server, tmp_path):
+    data = make_payload(64 * 1024, seed=931)
+    url = server.add_file("collide/again.bin", data)
+    (tmp_path / "again.bin").write_bytes(b"an older download")
+
+    runner = await _run(url, tmp_path)
+    assert runner.state is TaskState.COMPLETED
+    assert (tmp_path / "again.bin").read_bytes() == b"an older download"
+    assert sha256(tmp_path / "again (1).bin") == sha256(data)
+
+
+async def test_an_explicit_name_beats_content_disposition(server, tmp_path):
+    data = make_payload(32 * 1024, seed=932)
+    url = server.add_file("collide/named.bin", data, disposition="server-choice.bin")
+
+    runner = await _run(url, tmp_path, filename="tên tôi đặt.bin")
+    assert runner.state is TaskState.COMPLETED
+    assert runner.dest_path is not None and runner.dest_path.name == "tên tôi đặt.bin"
+    assert sha256(tmp_path / "tên tôi đặt.bin") == sha256(data)
+
+
+async def test_resuming_reuses_the_part_file_instead_of_a_new_name(server, tmp_path):
+    """A second run must continue the first one, not start `file (1)`."""
+    data = make_payload(6 * 1024 * 1024, seed=933)
+    url = server.add_file("collide/resume-me.bin", data)
+
+    # One throttled connection, so there is time to pause it mid-flight.
+    stopped = TaskRunner(1, _request(f"{url}?slow=30", tmp_path, connections=1))
+    task = asyncio.create_task(stopped.run())
+    for _ in range(400):
+        await asyncio.sleep(0.02)
+        if stopped.snapshot().downloaded > 256 * 1024:
+            break
+    stopped.request_pause()
+    assert await task is TaskState.PAUSED
+    assert (tmp_path / "resume-me.bin.part").exists()
+
+    finished = await _run(url, tmp_path)
+    assert finished.state is TaskState.COMPLETED
+    assert [p.name for p in tmp_path.iterdir()] == ["resume-me.bin"]
+    assert sha256(tmp_path / "resume-me.bin") == sha256(data)

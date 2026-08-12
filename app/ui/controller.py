@@ -60,6 +60,8 @@ class DownloadItem:
     queue_id: int | None = None
     #: set when the user pauses this item by hand, so its queue leaves it alone
     manual_pause: bool = False
+    #: the file name is settled - do not let a re-probe rename it
+    name_locked: bool = False
 
     @property
     def category(self) -> str:
@@ -177,6 +179,7 @@ class Controller(QObject):
                 user_agent=extra["user_agent"] if extra else None,
                 proxy=extra["proxy"] if extra else None,
                 queue_id=row["queue_id"],
+                name_locked=bool(row["name_locked"]),
             )
             self._items[item.db_id] = item
             self.itemAdded.emit(item)
@@ -218,7 +221,8 @@ class Controller(QObject):
         if queue_id is not None:
             start_now = False
         save_dir = Path(save_dir) if save_dir else self.settings.download_dir
-        guess = filename or _media_name(url) or filenames.from_url(url) or "download"
+        chosen = filenames.sanitize(filename) if filename else None
+        guess = chosen or _media_name(url) or filenames.from_url(url) or "download"
         db_id = self.db.add_download(
             url=url,
             filename=guess,
@@ -231,6 +235,7 @@ class Controller(QObject):
             referer=referer,
             user_agent=user_agent,
             proxy=proxy,
+            name_locked=chosen is not None,
             queue_id=queue_id,
         )
         item = DownloadItem(
@@ -249,6 +254,7 @@ class Controller(QObject):
             max_height=max_height,
             audio_only=audio_only,
             queue_id=queue_id,
+            name_locked=chosen is not None,
         )
         self._items[db_id] = item
         self.itemAdded.emit(item)
@@ -420,7 +426,10 @@ class Controller(QObject):
         return DownloadRequest(
             url=item.url,
             save_dir=Path(item.save_path),
-            filename=None,  # let the probe decide; Content-Disposition wins
+            # A name the user typed (or one a probe already settled on, which
+            # the .part file is named after) has to survive; otherwise let
+            # Content-Disposition decide.
+            filename=item.filename if item.name_locked else None,
             connections=item.connections,
             speed_limit=item.speed_limit,
             use_categories=item.use_categories,
@@ -466,6 +475,9 @@ class Controller(QObject):
         item.segments = snap.segments
         if snap.filename and snap.filename != item.url:
             item.filename = snap.filename
+            # From the moment a runner reports a name there is a .part file
+            # carrying it; a resume must not let a second probe rename it.
+            item.name_locked = True
         if snap.path:
             final = Path(snap.path)
             item.filename = final.name
@@ -491,8 +503,9 @@ class Controller(QObject):
             self.db.update_progress(item.db_id, item.downloaded, state, item.error)
             self.db.execute(
                 "UPDATE downloads SET filename = ?, save_path = ?, size = ?, "
-                "category = ? WHERE id = ?",
-                (item.filename, item.save_path, item.size, item.category, item.db_id),
+                "category = ?, name_locked = ? WHERE id = ?",
+                (item.filename, item.save_path, item.size, item.category,
+                 int(item.name_locked), item.db_id),
             )
         except Exception:  # pragma: no cover - a DB hiccup must not kill the UI
             log.exception("could not persist download %d", item.db_id)

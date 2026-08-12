@@ -467,3 +467,47 @@ def test_translation_falls_back_to_english():
     i18n.set_language("en")
     assert i18n.tr("Add URL") == "Add URL"
     i18n.set_language("vi")
+
+
+def test_a_typed_file_name_reaches_the_disk(qapp, server, stack, tmp_path):
+    """The bug: the Add URL dialog's name only changed the list, not the file."""
+    controller, _settings, db = stack
+    data = make_payload(80_000, seed=940)
+    url = server.add_file("named/from-server.bin", data, disposition="from-server.bin")
+
+    item = controller.add(url, save_dir=tmp_path, filename="báo cáo quý 4.bin")
+    assert item.name_locked
+    assert db.get_download(item.db_id)["name_locked"] == 1
+    request = controller._build_request(item)
+    assert request.filename == "báo cáo quý 4.bin"
+
+    assert pump(qapp, lambda: item.state is TaskState.COMPLETED)
+    assert sha256(tmp_path / "báo cáo quý 4.bin") == sha256(data)
+
+
+def test_a_probed_name_is_locked_so_a_resume_keeps_it(qapp, server, stack, tmp_path):
+    controller, _settings, db = stack
+    data = make_payload(60_000, seed=941)
+    url = server.add_file("named/plain.bin", data)
+
+    item = controller.add(url, save_dir=tmp_path)
+    assert not item.name_locked, "nothing typed - the probe should decide"
+    assert pump(qapp, lambda: item.state is TaskState.COMPLETED)
+    # Once a runner has reported a name, the .part file carries it.
+    assert item.name_locked
+    assert db.get_download(item.db_id)["name_locked"] == 1
+    assert controller._build_request(item).filename == "plain.bin"
+
+
+def test_restoring_remembers_whether_the_name_was_settled(qapp, stack, tmp_path):
+    controller, settings, db = stack
+    typed = controller.add("https://example.com/a.bin", save_dir=tmp_path,
+                           filename="của tôi.bin", start_now=False)
+    guessed = controller.add("https://example.com/b.bin", save_dir=tmp_path,
+                             start_now=False)
+
+    fresh = Controller(db, settings)
+    fresh.restore()
+    restored = {i.db_id: i for i in fresh.items()}
+    assert restored[typed.db_id].name_locked
+    assert not restored[guessed.db_id].name_locked

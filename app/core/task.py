@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -30,6 +31,29 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
 log = get_logger(__name__)
 
 MIN_SPLIT = 2 << 20  # never create a stolen slice smaller than 2 MiB
+#: Paths claimed by running tasks in this process - `.part` files here, work
+#: directories in the media runner - so two downloads that resolve to the same
+#: name cannot write into the same place.
+_CLAIMED: set[Path] = set()
+_CLAIM_LOCK = threading.Lock()
+
+
+def reserve_path(path: Path) -> bool:
+    """Claim `path` for this task. False means another task already has it."""
+    with _CLAIM_LOCK:
+        if path in _CLAIMED:
+            return False
+        _CLAIMED.add(path)
+        return True
+
+
+def release_path(path: Path | None) -> None:
+    if path is None:
+        return
+    with _CLAIM_LOCK:
+        _CLAIMED.discard(path)
+
+
 PROGRESS_INTERVAL = 0.25
 META_INTERVAL = 1.0
 PART_SUFFIX = ".part"
@@ -242,6 +266,7 @@ class TaskRunner:
             self._set_state(TaskState.ERROR)
         finally:
             self._close_target()
+            release_path(self.part_path)
         return self.state
 
     # ---------------------------------------------------------------- internals
@@ -269,24 +294,45 @@ class TaskRunner:
         self.size = result.size
         self.resumable = result.resumable
 
+    def _claim_target(
+        self, directory: Path, result: ProbeResult
+    ) -> tuple[Path, Path, ResumeMeta | None]:
+        """Pick a destination no other task is writing, and reserve it.
+
+        Two downloads that resolve to the same name used to share one `.part`
+        file: whichever finished first renamed it away and the other died on
+        the missing file. So the name is settled *here*, before a single byte
+        is written, and the `.part` path is held for the life of the task.
+        """
+        for candidate in filenames.variants(self.filename):
+            dest = directory / candidate
+            part = directory / (candidate + PART_SUFFIX)
+            meta = ResumeMeta.load(meta_path_for(part)) if part.exists() else None
+            if meta is not None:
+                reason = meta.mismatch_reason(result)
+                if reason or not self.resumable:
+                    log.warning(
+                        "restarting %s from scratch: %s",
+                        candidate, reason or "server no longer supports ranges",
+                    )
+                    meta = None
+            # A finished file already sits there and we cannot continue into
+            # it - that name belongs to an earlier download.
+            if meta is None and dest.exists():
+                continue
+            if not reserve_path(part):
+                continue  # another task in this process is writing it
+            self.filename = candidate
+            return dest, part, meta
+        raise FatalError(f"no free file name near {directory / self.filename}")
+
     def _prepare_files(self, result: ProbeResult) -> None:
         directory = target_dir(
             Path(self.request.save_dir), self.filename, self.request.use_categories
         )
         directory.mkdir(parents=True, exist_ok=True)
-        self.dest_path = directory / self.filename
-        self.part_path = directory / (self.filename + PART_SUFFIX)
+        self.dest_path, self.part_path, meta = self._claim_target(directory, result)
         self.meta_path = meta_path_for(self.part_path)
-
-        meta = ResumeMeta.load(self.meta_path) if self.part_path.exists() else None
-        if meta is not None:
-            reason = meta.mismatch_reason(result)
-            if reason or not self.resumable:
-                log.warning(
-                    "restarting %s from scratch: %s",
-                    self.filename, reason or "server no longer supports ranges",
-                )
-                meta = None
 
         if meta is not None:
             self.segments = meta.segments
@@ -455,9 +501,13 @@ class TaskRunner:
         else:
             self.size = self._downloaded
 
+        # The name was reserved before the first byte, so it is normally still
+        # free; `unique_path` only matters if something outside the app took it
+        # while we were downloading.
         final = filenames.unique_path(self.dest_path)
         os.replace(self.part_path, final)
         self.dest_path = final
+        self.filename = final.name
         if self.meta_path is not None:
             with contextlib.suppress(FileNotFoundError, OSError):
                 self.meta_path.unlink()

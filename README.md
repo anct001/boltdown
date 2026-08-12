@@ -333,7 +333,7 @@ scripts/              build.py, sign.py, verify_p1.py, verify_p5.py,
                       verify_p6.py, make_app_icon.py, make_extension_icons.py
 ```
 
-Bảy điểm thiết kế đáng chú ý:
+Tám điểm thiết kế đáng chú ý:
 
 - **Dynamic segmentation** — segment nào xong trước sẽ cắt đôi phần *chưa tải* của
   segment chậm nhất và tải tiếp phần đó (`TaskRunner._steal_work`). Không có cơ chế
@@ -341,6 +341,10 @@ Bảy điểm thiết kế đáng chú ý:
 - **Ghi trước, ghi sổ sau** — `segment.done` (và file `.idmdown`) chỉ tăng *sau khi*
   dữ liệu đã nằm trên đĩa, nên metadata không bao giờ khai nhiều hơn thực tế. Mất
   điện chỉ khiến tải lại vài trăm KB, không bao giờ hỏng file.
+- **Tên tệp được chốt trước khi ghi byte đầu tiên** — `TaskRunner._claim_target`
+  chọn tên còn trống rồi *giữ chỗ* file `.part` đó trong suốt vòng đời task. Không
+  có bước này thì hai lượt tải cùng ra một tên sẽ dùng chung một file `.part`: cái
+  xong trước đổi tên, cái còn lại chết vì mất file.
 - **Đa luồng không cần lock** — mỗi segment giữ file descriptor riêng nên vị trí ghi
   độc lập; không có khoá nào giữa các worker.
 - **GUI không bao giờ chạm vào engine** — callback từ engine thread được bắn qua Qt
@@ -365,7 +369,7 @@ Bảy điểm thiết kế đáng chú ý:
 .venv/Scripts/python -m pytest -q
 ```
 
-282 test, khoảng 50 giây. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
+302 test, khoảng 70 giây. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
 cầu (bỏ qua `Range`, chặn `HEAD`, ngắt kết nối giữa chừng, trả 503, đổi `ETag`,
 không gửi `Content-Length`) — xem `tests/server.py`. Phần giao diện chạy headless qua
 Qt platform `offscreen`, kể cả kiểm tra vẽ biểu đồ và thanh segment. Phần trình duyệt

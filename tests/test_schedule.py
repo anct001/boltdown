@@ -198,6 +198,42 @@ def test_a_v1_database_is_migrated(tmp_path):
         columns = {row["name"] for row in db.query("PRAGMA table_info(schedules)")}
         assert {"stop_at", "last_run"} <= columns
         assert db.get_schedule(1)["start_at"] == "02:00"
+        # A v1 file walks through every later step in one go.
         assert db.query("SELECT value FROM meta WHERE key='schema_version'")[0][
             "value"
-        ] == "2"
+        ] == "3"
+
+
+def test_a_v2_database_gains_the_name_locked_column(tmp_path):
+    """Downloads already in flight keep their name after the upgrade."""
+    import sqlite3
+
+    path = tmp_path / "v2.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO meta VALUES ('schema_version', '2');
+        CREATE TABLE downloads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL,
+            final_url TEXT, filename TEXT NOT NULL, save_path TEXT NOT NULL,
+            size INTEGER, downloaded INTEGER NOT NULL DEFAULT 0,
+            state TEXT NOT NULL, category TEXT,
+            connections INTEGER NOT NULL DEFAULT 8, speed_limit INTEGER,
+            queue_id INTEGER, error TEXT, added_at REAL NOT NULL,
+            started_at REAL, finished_at REAL);
+        INSERT INTO downloads(url, filename, save_path, downloaded, state, added_at)
+             VALUES ('https://x/a.bin', 'a.bin', '.', 4096, 'paused', 0);
+        INSERT INTO downloads(url, filename, save_path, downloaded, state, added_at)
+             VALUES ('https://x/b.bin', 'b.bin', '.', 0, 'paused', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    with Database(path) as db:
+        rows = {r["filename"]: r["name_locked"] for r in db.list_downloads()}
+        assert rows == {"a.bin": 1, "b.bin": 0}
+        assert db.query("SELECT value FROM meta WHERE key='schema_version'")[0][
+            "value"
+        ] == "3"
