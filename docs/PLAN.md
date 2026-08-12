@@ -1,6 +1,7 @@
 # IDMClone — Phân tích & Kế hoạch triển khai
 
-> Trạng thái: **P0 → P6 đã hoàn thành** (2026-08-12) — toàn bộ lộ trình. Xem
+> Trạng thái: **P0 → P6 đã hoàn thành** (2026-08-12), thêm **P7** (2026-08-13):
+> nâng cấp giao diện và bốn tính năng người dùng yêu cầu. Xem
 > [../README.md](../README.md) để biết cách chạy và cách dựng bản cài đặt.
 
 ## 1. Bối cảnh & mục tiêu
@@ -261,6 +262,27 @@ Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thư�
   trên token phần cứng hoặc dùng Azure Trusted Signing — lúc đó chỉ cần nạp
   `.pfx` rồi chạy đúng lệnh cũ.
 
+## 10d. Giao diện và tiện ích (P7)
+
+**Đã làm — và một bài học về hiệu năng:**
+
+- `app/ui/theme.py` giữ toàn bộ màu dưới dạng token; sáng và tối là *cùng một*
+  stylesheet với giá trị khác nhau. Widget nào tự vẽ (bản đồ segment, biểu đồ
+  tốc độ, cột tiến độ) đều hỏi token thay vì hằng số màu.
+- **Không dùng luật `QWidget { ... }` trong QSS.** Bản đầu có luật đó và bộ test
+  giao diện chậm gấp bốn lần vì Qt phải "re-polish" mọi widget mỗi lần đổi.
+  Chuyển màu nền/chữ sang `QPalette` thật, QSS chỉ còn lo hình dáng — thời gian
+  test trở lại như cũ.
+- Bắt clipboard chỉ nhận **link trơ** và lọc theo đuôi file; `ignore()` cho phép
+  app tự copy URL mà không kích hoạt chính mình.
+- Mẫu `[001-120]`/`[a-e]` bung ở `app/util/patterns.py` (thuần chuỗi, có trần
+  10.000 URL) nên dialog xem trước được trước khi tải.
+- Lịch sử ghi ngay lúc tải xong chứ không đợi lúc xoá khỏi danh sách; `archive`
+  viết idempotent để một file không hiện hai dòng.
+- Ảnh chụp tài liệu do `scripts/make_screenshots.py` sinh ra từ widget thật
+  đang tải thật; cửa sổ đặt ngoài màn hình thay vì dùng nền `offscreen` (nền đó
+  không có font, chữ ra ô vuông).
+
 ## 11. Lộ trình theo giai đoạn
 
 | Giai đoạn | Nội dung | Kết quả kiểm chứng được |
@@ -272,6 +294,7 @@ Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thư�
 | **P4** — Video ✅ | yt-dlp adapter + HLS parser + ffmpeg merge | Tải 1 video YouTube và 1 stream m3u8, phát được |
 | **P5** — Nâng cao ✅ | Scheduler/hàng đợi, Site Grabber, đa ngôn ngữ, hành động sau khi xong | Hẹn giờ tải lúc 2h sáng, grab toàn bộ ảnh 1 site |
 | **P6** — Phát hành ✅ | PyInstaller + Inno Setup, auto-start, tài liệu | Chạy installer trên máy sạch, hoạt động ngay |
+| **P7** — Giao diện & tiện ích ✅ | Theme riêng sáng/tối, bắt link clipboard, thêm hàng loạt có mẫu, lịch sử + checksum, hộp thả nổi | Copy link là app hỏi tải; dán mẫu `[001-024]` ra đúng 24 URL |
 
 ## 12. Rủi ro & phương án
 

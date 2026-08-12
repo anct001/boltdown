@@ -244,12 +244,40 @@ class Database:
         self.execute("DELETE FROM downloads WHERE id = ?", (download_id,))
 
     def archive(self, download_id: int) -> None:
+        """Copy a download into the history, once.
+
+        Called both when a download finishes and when the row is removed, so
+        the insert has to be idempotent or every finished file would appear
+        twice the moment the user cleared it from the list.
+        """
         self.execute(
             """INSERT INTO history (download_id, url, filename, size, state, finished_at)
                SELECT id, url, filename, size, state, COALESCE(finished_at, ?)
-                 FROM downloads WHERE id = ?""",
-            (time.time(), download_id),
+                 FROM downloads WHERE id = ?
+                  AND NOT EXISTS (SELECT 1 FROM history WHERE download_id = ?)""",
+            (time.time(), download_id, download_id),
         )
+
+    # ----------------------------------------------------------------- history
+
+    def list_history(self, search: str = "", limit: int = 500) -> list[sqlite3.Row]:
+        if search:
+            like = f"%{search}%"
+            return self.query(
+                "SELECT * FROM history WHERE filename LIKE ? OR url LIKE ? "
+                "ORDER BY finished_at DESC LIMIT ?",
+                (like, like, limit),
+            )
+        return self.query(
+            "SELECT * FROM history ORDER BY finished_at DESC LIMIT ?", (limit,)
+        )
+
+    def clear_history(self) -> int:
+        cursor = self.execute("DELETE FROM history")
+        return cursor.rowcount or 0
+
+    def delete_history(self, history_id: int) -> None:
+        self.execute("DELETE FROM history WHERE id = ?", (history_id,))
 
     # ------------------------------------------------------------------ queues
 

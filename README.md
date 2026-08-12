@@ -2,9 +2,10 @@
 
 Trình quản lý tải xuống đa luồng cho Windows, tính năng hướng theo Internet Download Manager.
 
-**Trạng thái: P0 → P6 hoàn thành** — engine lõi, giao diện đồ hoạ, tích hợp
-trình duyệt, tải video streaming, hàng đợi/hẹn giờ, Site Grabber và bản đóng
-gói cho Windows đều đã chạy. Lộ trình đầy đủ ở [docs/PLAN.md](docs/PLAN.md).
+**Trạng thái: P0 → P7 hoàn thành** — engine lõi, giao diện đồ hoạ, tích hợp
+trình duyệt, tải video streaming, hàng đợi/hẹn giờ, Site Grabber, bản đóng gói
+cho Windows, và bản nâng cấp giao diện kèm bắt link clipboard / thêm hàng loạt /
+lịch sử / checksum / hộp thả nổi. Lộ trình đầy đủ ở [docs/PLAN.md](docs/PLAN.md).
 
 ![Cửa sổ chính](docs/screenshots/main-window.png)
 
@@ -31,14 +32,23 @@ Phần tải video cần thêm `ffmpeg` trong PATH (hoặc chỉ đường dẫn
 ```
 
 Cửa sổ chính có thanh công cụ, cây danh mục, bảng tiến độ, khay hệ thống, kéo-thả
-link và menu chuột phải. Nhấn `Ctrl+N` để thêm URL, `Ctrl+V` để dán link từ clipboard,
-nhấp đúp vào dòng đang tải để mở cửa sổ tiến độ (biểu đồ tốc độ + bản đồ các đoạn),
-nhấp đúp vào dòng đã xong để mở tệp. Hai nút **Hẹn giờ** và **Quét trang web** trên
-thanh công cụ mở phần hàng đợi và Site Grabber ở dưới.
+link và menu chuột phải. Nhấn `Ctrl+N` để thêm URL, `Ctrl+Shift+N` để thêm hàng
+loạt, `Ctrl+V` để dán link từ clipboard, nhấp đúp vào dòng đang tải để mở cửa sổ
+tiến độ (biểu đồ tốc độ + bản đồ các đoạn), nhấp đúp vào dòng đã xong để mở tệp.
+Hai nút **Hẹn giờ** và **Quét trang web** mở phần hàng đợi và Site Grabber ở dưới.
 
 | | |
 |---|---|
 | ![Tiến độ](docs/screenshots/progress-dialog.png) | ![Thêm URL](docs/screenshots/add-url.png) |
+| ![Thêm hàng loạt](docs/screenshots/batch.png) | ![Hẹn giờ](docs/screenshots/scheduler.png) |
+
+Giao diện dùng bảng màu riêng (`app/ui/theme.py`) và **tự đổi sáng/tối theo
+Windows**; muốn ép một bên thì vào **Tuỳ chọn → Giao diện**. Đổi là thấy ngay,
+không cần khởi động lại. Ảnh chụp trong tài liệu sinh lại được bằng:
+
+```bash
+.venv/Scripts/python scripts/make_screenshots.py --theme dark
+```
 
 ## Tích hợp Chrome / Edge
 
@@ -132,6 +142,46 @@ resume được. Tạm dừng giữa chừng thì các segment đã tải nằm 
 `--quality 1080` là **chặn trên**: nếu không có bản 1080p thì lấy bản cao nhất
 còn dưới mức đó. Không có audio riêng thì bản 360p có tiếng được ưu tiên hơn bản
 1080p câm.
+
+## Bắt link từ clipboard
+
+Bật ở **Tuỳ chọn → Clipboard** (hoặc menu Tuỳ chọn, hoặc chuột phải vào biểu
+tượng khay): copy một link là app hỏi tải ngay. Hai luật giữ cho nó không phiền:
+
+- **Chỉ tính link trơ** — nội dung copy phải đúng là một URL, copy cả đoạn văn
+  có chứa link thì bỏ qua.
+- **Chỉ những đuôi bạn liệt kê** (mặc định `zip, rar, 7z, exe, msi, iso, pdf,
+  mp3, mp4, mkv`), nên copy link bài báo không kích hoạt gì.
+
+Bấm *Sao chép URL* ngay trong app cũng không kích hoạt lại chính nó — link đó
+được đánh dấu bỏ qua đúng một lần.
+
+## Thêm hàng loạt URL
+
+`Ctrl+Shift+N` mở ô dán nhiều dòng, và hiểu mẫu kiểu IDM:
+
+```
+https://example.com/ban-tin/tap[001-024].mp4     -> 24 URL, giữ nguyên số 0 ở đầu
+https://example.com/vol[a-e]/data.zip            ->  5 URL
+https://example.com/[1-3]/[a-b].txt              ->  6 URL (mọi tổ hợp)
+```
+
+Danh sách bung ra được xem trước trước khi thêm, có khử trùng lặp, và bị chặn
+nếu mẫu sinh quá 10.000 URL (`app/util/patterns.py`).
+
+## Lịch sử và kiểm tra checksum
+
+Mục đã tải xong được ghi vào bảng `history` ngay lúc xong, nên xoá khỏi danh
+sách vẫn tra lại được: **Tệp → Lịch sử** cho tìm kiếm, copy URL, tải lại hoặc
+xoá. Chuột phải một mục đã xong → **Kiểm tra checksum** để tính SHA-256/MD5/SHA-1
+(chạy trên luồng nền, có thanh tiến độ) rồi dán giá trị trên trang tải về vào để
+so — chấp nhận cả kiểu `<hash>  <tên tệp>` copy thẳng từ file `.sha256`.
+
+## Hộp thả nổi
+
+**Tuỳ chọn → Hộp thả nổi** bật một ô nhỏ luôn nổi trên các cửa sổ khác: kéo link
+từ trình duyệt thả vào là tải, không cần alt-tab. Kéo chính nó để đổi chỗ (vị trí
+được nhớ lại), nhấp đúp để mở cửa sổ chính, chuột phải để ẩn.
 
 ## Hàng đợi và hẹn giờ
 
@@ -314,8 +364,11 @@ app/
   grabber/
     crawler.py        BFS theo depth, lọc đuôi file/regex, chỉ đọc text/html
   ui/
+    theme.py          bảng màu + QSS, tự đổi sáng/tối theo Windows
     controller.py     cầu nối engine <-> SQLite <-> Qt (marshal qua queued signal)
     scheduler.py      đọc lịch, bật/tắt hàng đợi, xin hành động khi xong
+    clipboard_watch.py  bắt link vừa copy; dropbox.py  hộp thả nổi
+    batch_dialog.py / history_dialog.py / checksum_dialog.py
     ipc_bridge.py     tin nhắn từ trình duyệt -> hành động trên GUI thread
     main_window.py    thanh công cụ, cây danh mục, bảng tiến độ, kéo-thả
     task_model.py     QAbstractTableModel + delegate vẽ thanh tiến độ
@@ -324,13 +377,13 @@ app/
     add_url_dialog.py / settings_dialog.py / tray.py / icons.py / i18n.py
   storage/            db.py (SQLite, có migration) + settings.py
   util/               power.py (tắt máy/ngủ đông), autostart.py (khoá Run),
-                      filenames.py, fmt.py, paths.py
+                      patterns.py (mẫu [001-100]), filenames.py, fmt.py, paths.py
 extension/            MV3: background.js (bắt download + sniff media),
                       content.js (nút nổi), popup/
 packaging/            idmclone.spec (3 exe), installer.iss (Inno Setup),
                       entry_*.py (điểm vào cho bản frozen), idmclone.ico
-scripts/              build.py, sign.py, verify_p1.py, verify_p5.py,
-                      verify_p6.py, make_app_icon.py, make_extension_icons.py
+scripts/              build.py, sign.py, verify_p1.py, verify_p5.py, verify_p6.py,
+                      make_app_icon.py, make_extension_icons.py, make_screenshots.py
 ```
 
 Tám điểm thiết kế đáng chú ý:
@@ -369,7 +422,7 @@ Tám điểm thiết kế đáng chú ý:
 .venv/Scripts/python -m pytest -q
 ```
 
-302 test, khoảng 70 giây. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
+342 test, khoảng 90 giây. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
 cầu (bỏ qua `Range`, chặn `HEAD`, ngắt kết nối giữa chừng, trả 503, đổi `ETag`,
 không gửi `Content-Length`) — xem `tests/server.py`. Phần giao diện chạy headless qua
 Qt platform `offscreen`, kể cả kiểm tra vẽ biểu đồ và thanh segment. Phần trình duyệt
@@ -381,6 +434,12 @@ AES-128 (so byte sau khi giải mã), master playlist nhiều bitrate, segment l
 503 rồi thử lại, dừng giữa chừng rồi tải tiếp. Nếu máy có ffmpeg, test còn dựng
 một file MPEG-TS thật bằng `lavfi`, cắt nhỏ ra rồi bắt app ghép và remux lại
 thành `.mp4`; không có ffmpeg thì các test đó tự bỏ qua.
+
+Phần mới ở P7 test bằng logic thuần là chính: bung mẫu `[001-120]` (kể cả đếm
+ngược, giữ số 0 ở đầu, chặn mẫu quá lớn), luật bắt clipboard (link trơ mới tính,
+không lặp, bỏ qua link do chính app copy), lịch sử (ghi một lần dù archive hai
+lần), checksum (so với `hashlib`, huỷ được giữa chừng) và theme (đổi bảng màu thì
+màu trạng thái đổi theo).
 
 Phần hàng đợi và hẹn giờ chạy hoàn toàn bằng giờ giả (`tick(now=...)`), gồm cả
 mấy ca khó chịu: lỡ mốc 02:00, cửa sổ 23:00→02:00 vắt qua nửa đêm, mặt nạ thứ,

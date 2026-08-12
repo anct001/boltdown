@@ -204,6 +204,45 @@ _VI: dict[str, str] = {
     "Images": "Ảnh",
     "Audio": "Âm thanh",
     "Archives": "Nén",
+    # theme
+    "Theme:": "Giao diện:",
+    "Follow Windows": "Theo Windows",
+    "Light": "Sáng",
+    "Dark": "Tối",
+    # clipboard
+    "Clipboard": "Clipboard",
+    "Watch the clipboard": "Theo dõi clipboard",
+    "Copy a link to download it": "Copy một link là app hỏi tải ngay",
+    "Only text that is a bare link counts, so copying a paragraph does nothing.":
+        "Chỉ tính khi nội dung copy đúng là một link trơ; copy cả đoạn văn thì bỏ qua.",
+    # batch
+    "Add many URLs": "Thêm hàng loạt URL",
+    "One URL per line. [001-120] and [a-z] expand.":
+        "Mỗi dòng một URL. Mẫu [001-120] và [a-z] sẽ được bung ra.",
+    "{n} URLs ready": "Sẵn sàng {n} URL",
+    "... and {n} more": "... và {n} mục nữa",
+    "Add all": "Thêm tất cả",
+    # history
+    "History": "Lịch sử",
+    "Download again": "Tải lại",
+    "Clear history": "Xoá lịch sử",
+    "Clear the whole history?": "Xoá toàn bộ lịch sử?",
+    # checksum
+    "Verify checksum": "Kiểm tra checksum",
+    "File:": "Tệp:",
+    "Algorithm:": "Thuật toán:",
+    "Result:": "Kết quả:",
+    "Expected:": "Giá trị mong đợi:",
+    "not computed yet": "chưa tính",
+    "paste the value from the download page": "dán giá trị trên trang tải về",
+    "Compute": "Tính",
+    "Copy": "Sao chép",
+    "Match": "Khớp",
+    "Does NOT match": "KHÔNG khớp",
+    # drop box
+    "Drop box": "Hộp thả nổi",
+    "Drop links here": "Thả link vào đây",
+    "Hide drop box": "Ẩn hộp thả",
 }
 
 _TABLES = {"vi": _VI, "en": {}}

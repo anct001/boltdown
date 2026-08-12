@@ -9,20 +9,16 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
     QObject,
+    QRectF,
     QSortFilterProxyModel,
     Qt,
 )
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (
-    QApplication,
-    QStyle,
-    QStyledItemDelegate,
-    QStyleOptionProgressBar,
-    QStyleOptionViewItem,
-)
+from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
 
 from ..core.task import TaskState
 from ..util.fmt import human_duration, human_size, human_speed
+from . import theme
 from .controller import Controller, DownloadItem
 from .i18n import tr
 
@@ -33,12 +29,15 @@ ITEM_ROLE = Qt.ItemDataRole.UserRole + 1
 PERCENT_ROLE = Qt.ItemDataRole.UserRole + 2
 SORT_ROLE = Qt.ItemDataRole.UserRole + 3
 
-_STATE_COLORS = {
-    TaskState.COMPLETED: QColor("#2e7d32"),
-    TaskState.ERROR: QColor("#c62828"),
-    TaskState.PAUSED: QColor("#ef6c00"),
-    TaskState.CANCELLED: QColor("#757575"),
-}
+def state_color(state: TaskState) -> QColor | None:
+    """Status colours come from the active theme, not from constants."""
+    palette = theme.current()
+    return {
+        TaskState.COMPLETED: palette.color("success"),
+        TaskState.ERROR: palette.color("danger"),
+        TaskState.PAUSED: palette.color("warning"),
+        TaskState.CANCELLED: palette.color("muted"),
+    }.get(state)
 
 
 class DownloadTableModel(QAbstractTableModel):
@@ -81,7 +80,7 @@ class DownloadTableModel(QAbstractTableModel):
         if role == SORT_ROLE:
             return self._sort_key(item, column)
         if role == Qt.ItemDataRole.ForegroundRole and column == COL_STATUS:
-            return _STATE_COLORS.get(item.state)
+            return state_color(item.state)
         if role == Qt.ItemDataRole.ToolTipRole:
             return item.error or item.url
         if role == Qt.ItemDataRole.TextAlignmentRole and column in (
@@ -203,7 +202,14 @@ class DownloadFilterProxy(QSortFilterProxyModel):
 
 
 class ProgressDelegate(QStyledItemDelegate):
-    """Draws the Status column as a progress bar, like IDM's list."""
+    """Draws the Status column as a progress bar, like IDM's list.
+
+    Painted by hand rather than through the style so the bar matches the
+    theme exactly: a rounded track, an accent fill that turns green when the
+    file is finished, and the percentage on top of it.
+    """
+
+    RADIUS = 6
 
     def paint(self, painter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         item: DownloadItem | None = index.data(ITEM_ROLE)
@@ -211,16 +217,28 @@ class ProgressDelegate(QStyledItemDelegate):
             super().paint(painter, option, index)
             return
 
-        bar = QStyleOptionProgressBar()
-        bar.rect = option.rect.adjusted(3, 5, -3, -5)
-        bar.minimum = 0
-        bar.maximum = 100
-        bar.progress = int(item.percent)
-        bar.text = DownloadTableModel.status_text(item)
-        bar.textVisible = True
-        bar.textAlignment = Qt.AlignmentFlag.AlignCenter
-        style = QApplication.style()
-        style.drawControl(QStyle.ControlElement.CE_ProgressBar, bar, painter)
+        palette = theme.current()
+        rect = QRectF(option.rect).adjusted(6, 7, -6, -7)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(palette.color("track"))
+        painter.drawRoundedRect(rect, self.RADIUS, self.RADIUS)
+
+        fraction = max(0.0, min(1.0, item.percent / 100.0))
+        if fraction > 0:
+            filled = QRectF(rect)
+            filled.setWidth(max(rect.height(), rect.width() * fraction))
+            done = item.state is TaskState.COMPLETED
+            painter.setBrush(palette.color("success" if done else "accent"))
+            painter.drawRoundedRect(filled, self.RADIUS, self.RADIUS)
+
+        painter.setPen(QPen(palette.color("text")))
+        painter.drawText(
+            option.rect, Qt.AlignmentFlag.AlignCenter,
+            DownloadTableModel.status_text(item),
+        )
+        painter.restore()
 
 
 def elapsed_since(timestamp: float | None) -> str:

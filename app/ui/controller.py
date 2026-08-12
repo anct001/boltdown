@@ -487,6 +487,10 @@ class Controller(QObject):
             item.speed = 0.0
 
         self._sync_db(item, force=event.type != "progress")
+        if snap.state is TaskState.COMPLETED:
+            # The history is what survives clearing the list, so a finished
+            # file is recorded now rather than when the row is removed.
+            self.db.archive(item.db_id)
         self.itemChanged.emit(item)
         if snap.state.is_final and item.queue_id is not None:
             self.pump_queues()

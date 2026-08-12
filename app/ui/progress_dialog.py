@@ -24,12 +24,20 @@ from PySide6.QtWidgets import (
 
 from ..core.task import TaskState
 from ..util.fmt import human_duration, human_size, human_speed
+from . import theme
 from .controller import Controller, DownloadItem
 from .i18n import tr
 
-ACCENT = QColor("#1565c0")
-ACCENT_SOFT = QColor(21, 101, 192, 60)
-TRACK = QColor("#cfd8dc")
+def _accent() -> QColor:
+    return theme.current().color("accent")
+
+
+def _accent_soft() -> QColor:
+    return theme.current().alpha("accent", 70)
+
+
+def _track() -> QColor:
+    return theme.current().color("border")
 
 
 class SpeedGraph(QWidget):
@@ -53,7 +61,7 @@ class SpeedGraph(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         painter.fillRect(rect, self.palette().base())
-        painter.setPen(QPen(TRACK, 1))
+        painter.setPen(QPen(_track(), 1))
         painter.drawRect(rect)
 
         for i in range(1, 4):
@@ -81,8 +89,8 @@ class SpeedGraph(QWidget):
         fill.lineTo(rect.right(), base_y)
         fill.lineTo(first_x, base_y)
         fill.closeSubpath()
-        painter.fillPath(fill, QBrush(ACCENT_SOFT))
-        painter.setPen(QPen(ACCENT, 1.6))
+        painter.fillPath(fill, QBrush(_accent_soft()))
+        painter.setPen(QPen(_accent(), 1.6))
         painter.drawPath(path)
 
         painter.setPen(self.palette().text().color())
@@ -106,33 +114,43 @@ class SegmentBar(QWidget):
         self._size = size or 0
         self.update()
 
+    RADIUS = 6
+
     def paintEvent(self, event) -> None:
+        palette = theme.current()
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        painter.fillRect(rect, TRACK)
-        if not self._size or not self._segments:
-            painter.setPen(QPen(QColor("#90a4ae"), 1))
-            painter.drawRect(rect)
-            return
 
-        scale = rect.width() / self._size
-        painter.setPen(Qt.PenStyle.NoPen)
-        for start, current, _end in self._segments:
-            if current <= start:
-                continue
-            x = rect.left() + start * scale
-            width = max(1.0, (current - start) * scale)
-            painter.fillRect(QRectF(x, rect.top(), width, rect.height()), ACCENT)
+        clip = QPainterPath()
+        clip.addRoundedRect(rect, self.RADIUS, self.RADIUS)
+        painter.setClipPath(clip)
+        painter.fillRect(rect, palette.color("track"))
 
-        painter.setPen(QPen(QColor("#ffffff"), 1))
-        for start, _current, _end in self._segments:
-            if start == 0:
-                continue
-            x = rect.left() + start * scale
-            painter.drawLine(x, rect.top(), x, rect.bottom())
-        painter.setPen(QPen(QColor("#90a4ae"), 1))
+        if self._size and self._segments:
+            scale = rect.width() / self._size
+            painter.setPen(Qt.PenStyle.NoPen)
+            for start, current, _end in self._segments:
+                if current <= start:
+                    continue
+                x = rect.left() + start * scale
+                width = max(1.0, (current - start) * scale)
+                painter.fillRect(
+                    QRectF(x, rect.top(), width, rect.height()), palette.color("accent")
+                )
+            # A hairline where each segment begins: that is what makes a
+            # dynamic split visible the moment it happens.
+            painter.setPen(QPen(palette.alpha("window", 200), 1))
+            for start, _current, _end in self._segments:
+                if start == 0:
+                    continue
+                x = rect.left() + start * scale
+                painter.drawLine(x, rect.top(), x, rect.bottom())
+
+        painter.setClipping(False)
+        painter.setPen(QPen(palette.color("border"), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(rect)
+        painter.drawRoundedRect(rect, self.RADIUS, self.RADIUS)
 
 
 class ProgressDialog(QDialog):

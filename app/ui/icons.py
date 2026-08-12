@@ -8,7 +8,15 @@ light and dark Windows themes.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
 
 SIZE = 32
 
@@ -93,6 +101,71 @@ def settings_icon(color: QColor = QColor("#455a64")) -> QIcon:
     p.drawEllipse(QPointF(0, 0), 9, 9)
     p.setBrush(QBrush(QColor("#eceff1")))
     p.drawEllipse(QPointF(0, 0), 4, 4)
+    return _finish(pixmap, p)
+
+
+def _accent() -> QColor:
+    """Toolbar glyphs follow the theme; the coloured icons above do not."""
+    from . import theme
+
+    return theme.current().color("accent")
+
+
+def batch_icon(color: QColor | None = None) -> QIcon:
+    """Three stacked rows plus a small plus - "add many"."""
+    pixmap, p = _canvas()
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(color or _accent()))
+    for y in (6, 13, 20):
+        p.drawRoundedRect(QRectF(4, y, 16, 4), 2, 2)
+    p.drawRoundedRect(QRectF(23, 13, 4, 14), 2, 2)
+    p.drawRoundedRect(QRectF(18, 18, 14, 4), 2, 2)
+    return _finish(pixmap, p)
+
+
+def clock_icon(color: QColor | None = None) -> QIcon:
+    pixmap, p = _canvas()
+    pen = QPen(color or _accent())
+    pen.setWidthF(2.4)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawEllipse(QPointF(16, 16), 11, 11)
+    p.drawLine(QPointF(16, 16), QPointF(16, 9))
+    p.drawLine(QPointF(16, 16), QPointF(21, 18))
+    return _finish(pixmap, p)
+
+
+def history_icon(color: QColor | None = None) -> QIcon:
+    """A clock whose dial is open on the left, with an arrow back into it."""
+    pixmap, p = _canvas()
+    pen = QPen(color or _accent())
+    pen.setWidthF(2.4)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawArc(QRectF(5, 5, 22, 22), 60 * 16, 300 * 16)
+    p.drawLine(QPointF(16, 16), QPointF(16, 10))
+    p.drawLine(QPointF(16, 16), QPointF(20, 19))
+    path = QPainterPath()
+    path.moveTo(QPointF(6, 2))
+    path.lineTo(QPointF(13, 8))
+    path.lineTo(QPointF(5, 10))
+    path.closeSubpath()
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(color or _accent()))
+    p.drawPath(path)
+    return _finish(pixmap, p)
+
+
+def globe_icon(color: QColor | None = None) -> QIcon:
+    """Site grabber: a globe with one meridian and one parallel."""
+    pixmap, p = _canvas()
+    pen = QPen(color or _accent())
+    pen.setWidthF(2.2)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawEllipse(QPointF(16, 16), 11, 11)
+    p.drawLine(QPointF(5, 16), QPointF(27, 16))
+    p.drawEllipse(QPointF(16, 16), 5, 11)
     return _finish(pixmap, p)
 
 

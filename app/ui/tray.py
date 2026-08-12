@@ -29,9 +29,14 @@ class TrayIcon(QSystemTrayIcon):
 
         menu.addAction(self.show_action)
         menu.addAction(self.add_action)
+        menu.addAction(window.action_batch)
         menu.addSeparator()
         menu.addAction(self.pause_action)
         menu.addAction(self.resume_action)
+        menu.addSeparator()
+        # The two toggles people flip most often, without opening the window.
+        menu.addAction(window.action_clipboard)
+        menu.addAction(window.action_dropbox)
         menu.addSeparator()
         menu.addAction(self.exit_action)
         self.setContextMenu(menu)

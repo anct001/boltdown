@@ -35,8 +35,13 @@ from ..util import power
 from ..util.fmt import human_speed
 from . import icons
 from .add_url_dialog import AddUrlDialog
+from .batch_dialog import BatchDialog
+from .checksum_dialog import ChecksumDialog
+from .clipboard_watch import ClipboardWatcher
 from .controller import Controller, DownloadItem
+from .dropbox import DropBox
 from .grabber_dialog import GrabberDialog
+from .history_dialog import HistoryDialog
 from .i18n import tr
 from .progress_dialog import ProgressDialog, _open_path
 from .queue_dialog import SchedulerDialog
@@ -95,6 +100,14 @@ class MainWindow(QMainWindow):
         self.scheduler.actionRequested.connect(self._on_post_action)
         self.scheduler.start()
 
+        self.clipboard = ClipboardWatcher(settings, self)
+        self.clipboard.linkCaptured.connect(self._on_clipboard_link)
+        if settings.get("clipboard_monitor"):
+            self.clipboard.start()
+        self.dropbox: DropBox | None = None
+        if settings.get("dropbox_visible"):
+            self.toggle_dropbox(True)
+
         controller.itemChanged.connect(self._on_item_changed)
         controller.queuesChanged.connect(self._rebuild_queue_nodes)
         self._update_action_states()
@@ -125,11 +138,28 @@ class MainWindow(QMainWindow):
         self.action_options = QAction(icons.settings_icon(), tr("Options"), self)
         self.action_options.triggered.connect(self.open_settings)
 
-        self.action_scheduler = QAction(tr("Scheduler"), self)
+        self.action_scheduler = QAction(icons.clock_icon(), tr("Scheduler"), self)
         self.action_scheduler.triggered.connect(self.open_scheduler)
 
-        self.action_grabber = QAction(tr("Site Grabber"), self)
+        self.action_grabber = QAction(icons.globe_icon(), tr("Site Grabber"), self)
         self.action_grabber.triggered.connect(self.open_grabber)
+
+        self.action_batch = QAction(icons.batch_icon(), tr("Add many URLs"), self)
+        self.action_batch.setShortcut(QKeySequence("Ctrl+Shift+N"))
+        self.action_batch.triggered.connect(self.open_batch)
+
+        self.action_history = QAction(icons.history_icon(), tr("History"), self)
+        self.action_history.triggered.connect(self.open_history)
+
+        self.action_dropbox = QAction(tr("Drop box"), self)
+        self.action_dropbox.setCheckable(True)
+        self.action_dropbox.setChecked(bool(self.settings.get("dropbox_visible")))
+        self.action_dropbox.toggled.connect(self.toggle_dropbox)
+
+        self.action_clipboard = QAction(tr("Watch the clipboard"), self)
+        self.action_clipboard.setCheckable(True)
+        self.action_clipboard.setChecked(bool(self.settings.get("clipboard_monitor")))
+        self.action_clipboard.toggled.connect(self.toggle_clipboard)
 
         self.action_paste = QAction(tr("Paste URL from clipboard"), self)
         self.action_paste.setShortcut(QKeySequence.StandardKey.Paste)
@@ -145,7 +175,7 @@ class MainWindow(QMainWindow):
         bar.setIconSize(bar.iconSize() * 1.1)
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         for action in (
-            self.action_add, self.action_resume, self.action_pause,
+            self.action_add, self.action_batch, self.action_resume, self.action_pause,
             self.action_pause_all, self.action_delete,
         ):
             bar.addAction(action)
@@ -159,7 +189,10 @@ class MainWindow(QMainWindow):
         menu = self.menuBar()
         file_menu = menu.addMenu(tr("File"))
         file_menu.addAction(self.action_add)
+        file_menu.addAction(self.action_batch)
         file_menu.addAction(self.action_paste)
+        file_menu.addSeparator()
+        file_menu.addAction(self.action_history)
         file_menu.addSeparator()
         file_menu.addAction(self.action_exit)
 
@@ -174,6 +207,9 @@ class MainWindow(QMainWindow):
         downloads.addAction(self.action_grabber)
 
         options = menu.addMenu(tr("Options"))
+        options.addAction(self.action_clipboard)
+        options.addAction(self.action_dropbox)
+        options.addSeparator()
         options.addAction(self.action_options)
 
         help_menu = menu.addMenu(tr("Help"))
@@ -300,6 +336,53 @@ class MainWindow(QMainWindow):
 
     def open_grabber(self) -> None:
         GrabberDialog(self.controller, self.settings, self).exec()
+
+    def open_batch(self) -> None:
+        BatchDialog(self.controller, self.settings, self).exec()
+
+    def open_history(self) -> None:
+        HistoryDialog(self.controller, self.controller.db, self).exec()
+
+    def verify_checksum(self, item: DownloadItem) -> None:
+        if not item.path.exists():
+            QMessageBox.information(self, tr("Open"), tr("The file no longer exists."))
+            return
+        ChecksumDialog(item.path, self).exec()
+
+    # ------------------------------------------------------- clipboard & box
+
+    def toggle_clipboard(self, enabled: bool) -> None:
+        self.clipboard.set_enabled(enabled)
+        if enabled:
+            self._notify(tr("Watch the clipboard"), tr("Copy a link to download it"))
+
+    def _on_clipboard_link(self, url: str) -> None:
+        options = {"url": url}
+        if self.settings.get("clipboard_ask"):
+            self._prefilled_dialog(options)
+        else:
+            self.controller.add(**options)
+            self._notify(tr("Add URL"), url)
+
+    def toggle_dropbox(self, visible: bool) -> None:
+        if visible:
+            if self.dropbox is None:
+                self.dropbox = DropBox(self.settings, self)
+                self.dropbox.urlsDropped.connect(self._on_dropped_urls)
+                self.dropbox.closed.connect(
+                    lambda: self.action_dropbox.setChecked(False)
+                )
+            self.dropbox.show_box()
+        elif self.dropbox is not None:
+            self.dropbox.hide_box()
+
+    def _on_dropped_urls(self, urls: list) -> None:
+        for url in urls:
+            if self.settings.get("ask_before_download"):
+                self.add_url(url)
+            else:
+                self.controller.add(url)
+                self._notify(tr("Add URL"), url)
 
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
@@ -478,13 +561,21 @@ class MainWindow(QMainWindow):
         menu.addAction(tr("Redownload"), lambda: self.controller.redownload(item.db_id))
         self._add_queue_menu(menu, items)
         menu.addSeparator()
-        menu.addAction(
-            tr("Copy URL"), lambda: QGuiApplication.clipboard().setText(item.url)
-        )
+        menu.addAction(tr("Copy URL"), lambda: self._copy_url(item))
+        if item.state is TaskState.COMPLETED:
+            menu.addAction(
+                tr("Verify checksum"), lambda: self.verify_checksum(item)
+            )
         menu.addAction(tr("Properties"), lambda: self.show_properties(item))
         menu.addSeparator()
         menu.addAction(icons.delete_icon(), tr("Delete"), self.delete_selected)
         menu.exec(self.table.viewport().mapToGlobal(position))
+
+    def _copy_url(self, item: DownloadItem) -> None:
+        # Tell the watcher first: copying a link from the list must not make
+        # the app offer to download what it already has.
+        self.clipboard.ignore(item.url)
+        QGuiApplication.clipboard().setText(item.url)
 
     def _add_queue_menu(self, menu: QMenu, items: list[DownloadItem]) -> None:
         queues = self.controller.queues()
@@ -599,6 +690,10 @@ class MainWindow(QMainWindow):
             return
         self._ticker.stop()
         self.scheduler.stop()
+        self.clipboard.stop()
+        if self.dropbox is not None:
+            self.dropbox.save_position()
+            self.dropbox.close()
         self.controller.shutdown()
         event.accept()
         QApplication.instance().quit()

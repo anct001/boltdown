@@ -26,6 +26,12 @@ DEFAULTS: dict[str, Any] = {
     "ffmpeg_path": None,           # None -> look next to the app, then on PATH
     "start_with_windows": False,   # mirrored into the HKCU Run key
     "extension_id": None,          # last id registered for native messaging
+    "theme": "auto",               # auto (follow Windows) | light | dark
+    "clipboard_monitor": False,    # catch links as they are copied
+    "clipboard_extensions": "zip, rar, 7z, exe, msi, iso, pdf, mp3, mp4, mkv",
+    "clipboard_ask": True,         # ask first instead of downloading at once
+    "dropbox_visible": False,      # the floating drop target
+    "dropbox_position": None,      # [x, y] of that window
 }
 
 

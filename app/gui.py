@@ -11,7 +11,7 @@ from .ipc import endpoint
 from .ipc.protocol import TYPE_SHOW
 from .storage.db import Database
 from .storage.settings import Settings
-from .ui import i18n, icons
+from .ui import i18n, icons, theme
 from .ui.controller import Controller
 from .ui.ipc_bridge import IpcBridge
 from .ui.main_window import MainWindow
@@ -51,6 +51,12 @@ def main(argv: list[str] | None = None) -> int:
     db = Database()
     settings = Settings(db)
     i18n.set_language(settings.language)
+    theme.apply(app, settings.get("theme"))
+    # "Follow Windows" has to keep following it: repaint when the user flips
+    # their system between light and dark while the app is open.
+    app.styleHints().colorSchemeChanged.connect(
+        lambda _scheme: theme.apply(app, settings.get("theme"))
+    )
 
     controller = Controller(db, settings)
     controller.start()

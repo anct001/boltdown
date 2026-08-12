@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -27,6 +28,7 @@ from ..media.ytdlp import version as ytdlp_version
 from ..storage.settings import Settings
 from ..util import autostart
 from ..util.fmt import human_size, parse_size
+from . import theme
 from .add_url_dialog import QUALITIES
 from .i18n import LANGUAGES, tr
 
@@ -42,6 +44,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._general_tab(), tr("General settings"))
         tabs.addTab(self._connection_tab(), tr("Connection"))
         tabs.addTab(self._video_tab(), tr("Video"))
+        tabs.addTab(self._clipboard_tab(), tr("Clipboard"))
         tabs.addTab(self._browser_tab(), tr("Browser integration"))
 
         buttons = QDialogButtonBox(
@@ -81,6 +84,17 @@ class SettingsDialog(QDialog):
         index = self.language.findData(self.settings.language)
         self.language.setCurrentIndex(max(0, index))
 
+        self.theme = QComboBox()
+        for label, value in (
+            ("Follow Windows", theme.AUTO),
+            ("Light", theme.LIGHT_NAME),
+            ("Dark", theme.DARK_NAME),
+        ):
+            self.theme.addItem(tr(label), value)
+        self.theme.setCurrentIndex(
+            max(0, self.theme.findData(self.settings.get("theme") or theme.AUTO))
+        )
+
         form = QFormLayout(page)
         form.addRow(tr("Downloads folder:"), row)
         form.addRow("", self.use_categories)
@@ -88,6 +102,7 @@ class SettingsDialog(QDialog):
         form.addRow("", self.ask_before)
         form.addRow("", self.autostart)
         form.addRow(tr("Language:"), self.language)
+        form.addRow(tr("Theme:"), self.theme)
         return page
 
     def _connection_tab(self) -> QWidget:
@@ -119,6 +134,32 @@ class SettingsDialog(QDialog):
         form.addRow(tr("User-Agent:"), self.user_agent)
         form.addRow("", self.verify_tls)
         note = QLabel(tr("Restart required for the language change."))
+        note.setEnabled(False)
+        form.addRow("", note)
+        return page
+
+    def _clipboard_tab(self) -> QWidget:
+        page = QWidget()
+        self.clipboard_monitor = QCheckBox(tr("Watch the clipboard"))
+        self.clipboard_monitor.setChecked(bool(self.settings.get("clipboard_monitor")))
+        self.clipboard_ask = QCheckBox(tr("Ask before every download"))
+        self.clipboard_ask.setChecked(bool(self.settings.get("clipboard_ask")))
+        self.clipboard_extensions = QLineEdit(
+            self.settings.get("clipboard_extensions") or ""
+        )
+        self.clipboard_extensions.setPlaceholderText(
+            tr("jpg, png, mp4 (empty = every file)")
+        )
+
+        form = QFormLayout(page)
+        form.addRow("", self.clipboard_monitor)
+        form.addRow("", self.clipboard_ask)
+        form.addRow(tr("Extensions:"), self.clipboard_extensions)
+        note = QLabel(
+            tr("Only text that is a bare link counts, so copying a paragraph "
+               "does nothing.")
+        )
+        note.setWordWrap(True)
         note.setEnabled(False)
         form.addRow("", note)
         return page
@@ -256,6 +297,7 @@ class SettingsDialog(QDialog):
             "minimize_to_tray": self.minimize_to_tray.isChecked(),
             "ask_before_download": self.ask_before.isChecked(),
             "language": self.language.currentData(),
+            "theme": self.theme.currentData(),
             "connections": self.connections.value(),
             "max_concurrent": self.concurrent.value(),
             "speed_limit": limit,
@@ -265,12 +307,19 @@ class SettingsDialog(QDialog):
             "video_quality": self.quality.currentData(),
             "ffmpeg_path": self.ffmpeg_edit.text().strip() or None,
             "start_with_windows": self.autostart.isChecked(),
+            "clipboard_monitor": self.clipboard_monitor.isChecked(),
+            "clipboard_ask": self.clipboard_ask.isChecked(),
+            "clipboard_extensions": self.clipboard_extensions.text().strip() or None,
         })
         # The registry is the source of truth Windows reads, so keep it in step
         # with the checkbox - and keep the setting honest if the write failed.
         if sys.platform == "win32":
             if not autostart.apply(self.autostart.isChecked()):
                 self.settings.set("start_with_windows", autostart.is_enabled())
+        # The theme is the one setting that must not wait for a restart.
+        app = QApplication.instance()
+        if app is not None:
+            theme.apply(app, self.theme.currentData())
         self.accept()
 
 
