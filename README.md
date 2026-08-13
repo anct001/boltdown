@@ -11,7 +11,7 @@ lịch sử / checksum / hộp thả nổi. Lộ trình đầy đủ ở [docs/P
 
 ## Cài đặt
 
-Người dùng cuối: chạy `IDMCloneSetup-0.1.0.exe` (xem mục [Đóng gói](#đóng-gói)
+Người dùng cuối: chạy `IDMCloneSetup-0.2.0.exe` (xem mục [Đóng gói](#đóng-gói)
 để tự dựng). Bản cài đặt đã kèm sẵn Python và Qt nên máy sạch không cần cài gì
 thêm.
 
@@ -278,7 +278,7 @@ Ra hai thứ trong `dist/`:
 | `idmclone-cli.exe` | console | dòng lệnh + `--register-host` trên máy không có Python |
 | `idmclone-host.exe` | console | native messaging cho Chrome/Edge |
 
-- `dist/IDMCloneSetup-0.1.0.exe` — bản cài đặt Inno Setup, 44 MB (chỉ dựng khi
+- `dist/IDMCloneSetup-0.2.0.exe` — bản cài đặt Inno Setup, ~50 MB (chỉ dựng khi
   máy có `ISCC.exe`; không có thì bước này được bỏ qua kèm lời nhắc). Cài Inno
   Setup bằng `winget install --id JRSoftware.InnoSetup -e`; bản winget không cần
   quyền admin nên nó nằm ở `%LOCALAPPDATA%\Programs\Inno Setup 6` — `build.py`
@@ -330,7 +330,7 @@ bộ và cho việc kiểm tra bản cập nhật. Trạng thái báo về sẽ 
 
 ```
 IDMClone.exe             UnknownError   CN=IDMClone Test Signing (self-signed) (timestamped)
-IDMCloneSetup-0.1.0.exe  UnknownError   CN=IDMClone Test Signing (self-signed) (timestamped)
+IDMCloneSetup-0.2.0.exe  UnknownError   CN=IDMClone Test Signing (self-signed) (timestamped)
 ```
 
 Muốn hết cảnh báo "nhà phát hành không xác định" thì phải mua chứng chỉ ký mã của
@@ -519,12 +519,12 @@ Thêm một lần chạy thật ngoài mạng: `--grab --depth 1 --filter png,jp
 --max-pages 3` trên `python.org` tìm được 20 ảnh trên 3 trang (kể cả ảnh nằm ở
 CDN S3 khác tên miền) và tải xong trong 21 giây.
 
-Nghiệm thu P6 trên bản đóng gói (2026-08-12):
+Nghiệm thu trên bản đóng gói **0.2.0** (2026-08-13):
 
 ```
 [PASS] layout    3 executables, 104 MB
-[PASS] cli       downloaded 3072 KB in 1.8s
-[PASS] host      ping answered in 3.6s: {'ok': True, 'app': 'IDMClone', 'version': '0.1.0'}
+[PASS] cli       downloaded 3072 KB in 1.4s
+[PASS] host      ping answered in 2.0s: {'ok': True, 'app': 'IDMClone', 'version': '0.2.0'}
 [PASS] handover  from-browser.bin landed in the download folder
 ```
 
@@ -532,15 +532,16 @@ Trong đó `handover` là chuỗi đầy đủ giống hệt lúc dùng thật: 
 messaging → `idmclone-host.exe` → khởi động `IDMClone.exe` (3,6 giây từ lúc máy
 chưa chạy app) → engine tải xong file.
 
-Bản ký thử cũng đã chạy một vòng: `build.py --sign` ký ba exe rồi mới đóng gói,
-ký tiếp bản cài đặt; cài im lặng ra thư mục tạm thì **cả ba exe trong thư mục cài
-đều còn chữ ký** (`unins000.exe` thì không, vì Inno sinh nó lúc cài), và
-`verify_p6.py` trên bản đã ký vẫn PASS cả bốn mục — ký số không làm hỏng exe do
-PyInstaller dựng.
+Trình cài đặt chạy thử một vòng đầy đủ mỗi lần dựng: cài im lặng
+(`/VERYSILENT /DIR=...`) ra 107,8 MB gồm 4 exe (3 exe của app + `unins000.exe`,
+cả ba exe đầu **vẫn còn chữ ký** sau khi cài), tạo shortcut Start Menu và mục gỡ
+cài đặt trong `HKCU`, **không** đụng khoá Run vì tác vụ tự khởi động mặc định
+không chọn. Bản 0.2.0 còn được mở thử **một lần cho mỗi theme** — cả bảy cộng
+chế độ "theo Windows" đều khởi động và trả lời IPC bình thường. Gỡ im lặng xong
+thì thư mục, shortcut và mục gỡ cài đặt đều biến mất, không sót gì.
 
-Trình cài đặt cũng đã chạy thử một vòng đầy đủ: cài im lặng
-(`/VERYSILENT /DIR=...`) ra 107,7 MB gồm 4 exe (3 exe của app + `unins000.exe`),
-tạo shortcut Start Menu và mục gỡ cài đặt trong `HKCU`, **không** đụng khoá Run
-(vì tác vụ tự khởi động mặc định không chọn). Chạy `verify_p6.py --dist` trỏ vào
-thư mục vừa cài thì cả bốn mục đều PASS. Gỡ im lặng xong thì thư mục, shortcut
-và mục gỡ cài đặt đều biến mất, không sót gì.
+SHA-256 của `IDMCloneSetup-0.2.0.exe`:
+
+```
+f9c901b131051b8120d9c323af2cac7945d1e38cd99646e50c3d8e2f59eaddb2
+```
