@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import re
 import sys
+import threading
+import time
 from dataclasses import dataclass
 
 from .log import get_logger
@@ -157,3 +159,72 @@ def resolve(explicit: str | None, *, use_system: bool = False,
     if settings.enabled and settings.server:
         return Resolved(for_scheme(settings.server, scheme), "system")
     return Resolved()
+
+
+class PacCache:
+    """The PAC script, fetched on a worker thread and remembered.
+
+    `resolve` wants the script at the moment a download starts - which is the
+    moment the user clicks OK, on the GUI thread. Fetching it there froze the
+    window for as long as the proxy server took to answer, up to the timeout.
+
+    So `read` never blocks. The first call starts a background fetch and
+    returns what it has (nothing); that download falls back to the system
+    proxy, which is what a PAC file almost always names anyway. Every later
+    download gets the cached script until it goes stale.
+    """
+
+    TTL = 600.0
+
+    def __init__(self, fetch=None, *, ttl: float | None = None) -> None:
+        self._fetch = fetch or _http_get
+        self.ttl = self.TTL if ttl is None else ttl
+        self._lock = threading.Lock()
+        self._url: str | None = None
+        self._text = ""
+        self._at = 0.0
+        self._thread: threading.Thread | None = None
+
+    def read(self, url: str) -> str:
+        """The script for `url`, or "" while it is still being fetched."""
+        with self._lock:
+            fresh = url == self._url and (time.monotonic() - self._at) < self.ttl
+            if fresh:
+                return self._text
+            busy = self._thread is not None and self._thread.is_alive()
+            known = self._text if url == self._url else ""
+            if busy:
+                return known
+            self._thread = threading.Thread(
+                target=self._load, args=(url,), name="boltdown-pac", daemon=True
+            )
+            self._thread.start()
+        return known
+
+    def prefetch(self, url: str | None) -> None:
+        """Warm the cache so the first download does not miss."""
+        if url:
+            self.read(url)
+
+    def wait(self, timeout: float = 5.0) -> None:
+        """Block until an in-flight fetch finishes. For tests and shutdown."""
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout)
+
+    def _load(self, url: str) -> None:
+        text = ""
+        try:
+            text = self._fetch(url)
+        except Exception as exc:  # noqa: BLE001 - a bad PAC never stops a download
+            log.info("could not read the PAC file: %s", exc)
+        # An empty result is cached too: a proxy that is down should be asked
+        # again in ten minutes, not on every single download.
+        with self._lock:
+            self._url, self._text, self._at = url, text, time.monotonic()
+
+
+def _http_get(url: str) -> str:
+    import httpx
+
+    return httpx.get(url, timeout=8.0).text

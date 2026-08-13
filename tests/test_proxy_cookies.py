@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 
 import pytest
 
@@ -143,3 +144,73 @@ def test_reading_a_profile_that_is_not_there_is_quiet(tmp_path):
     browser = bc.Browser("Fake", tmp_path / "nope")
     assert browser.cookie_files() == []
     assert bc.read_cookies(browser, "example.com") == ""
+
+
+# --------------------------------------------------- the PAC file is not fetched
+# --------------------------------------------------- on the thread drawing the UI
+
+
+def test_reading_a_pac_file_never_blocks_the_caller():
+    import time
+
+    from app.util.proxy import PacCache
+
+    slow = threading.Event()
+
+    def fetch(url):
+        slow.wait(2)
+        return 'return "PROXY 10.0.0.9:8080";'
+
+    cache = PacCache(fetch)
+    start = time.perf_counter()
+    assert cache.read("http://wpad/proxy.pac") == ""     # answers at once
+    assert time.perf_counter() - start < 0.5, "the call waited for the network"
+
+    slow.set()
+    cache.wait()
+    assert "10.0.0.9" in cache.read("http://wpad/proxy.pac")
+
+
+def test_the_pac_file_is_fetched_once_not_once_per_download():
+    from app.util.proxy import PacCache
+
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return 'return "PROXY 10.0.0.9:8080";'
+
+    cache = PacCache(fetch)
+    cache.read("http://wpad/proxy.pac")
+    cache.wait()
+    for _ in range(5):
+        assert "10.0.0.9" in cache.read("http://wpad/proxy.pac")
+    assert calls == ["http://wpad/proxy.pac"]
+
+
+def test_a_proxy_that_is_down_does_not_get_asked_on_every_download():
+    from app.util.proxy import PacCache
+
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        raise OSError("connection refused")
+
+    cache = PacCache(fetch, ttl=60)
+    cache.read("http://wpad/proxy.pac")
+    cache.wait()
+    for _ in range(5):
+        assert cache.read("http://wpad/proxy.pac") == ""
+    assert len(calls) == 1
+
+
+def test_a_different_pac_url_is_fetched_again():
+    from app.util.proxy import PacCache
+
+    cache = PacCache(lambda url: f'return "PROXY {url[-5:]}";')
+    cache.read("http://a/1.pac")
+    cache.wait()
+    assert cache.read("http://b/2.pac") == "", "not the answer for the old URL"
+    cache.wait()
+    assert "2.pac" in cache.read("http://b/2.pac")

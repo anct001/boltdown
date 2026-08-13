@@ -32,7 +32,7 @@ EXTENSION_ID = re.compile(r"^[a-p]{32}$")
 MANIFEST_NAME = f"{HOST_NAME}.json"
 LAUNCHER_NAME = "native_host.bat" if sys.platform == "win32" else "native_host.sh"
 #: the console executable an installed build ships for native messaging
-FROZEN_HOST_NAME = "idmclone-host.exe" if sys.platform == "win32" else "idmclone-host"
+FROZEN_HOST_NAME = "boltdown-host.exe" if sys.platform == "win32" else "boltdown-host"
 
 
 def _project_root() -> Path:
@@ -90,7 +90,7 @@ def write_launcher(target_dir: Path | None = None) -> Path:
 def build_manifest(extension_ids: list[str], launcher: Path) -> dict:
     return {
         "name": HOST_NAME,
-        "description": "IDMClone download manager integration",
+        "description": "Boltdown download manager integration",
         "path": str(launcher),
         "type": "stdio",
         "allowed_origins": [f"chrome-extension://{eid}/" for eid in extension_ids],

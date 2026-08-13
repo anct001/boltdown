@@ -18,7 +18,7 @@ from .util.paths import default_download_dir
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="idmclone",
+        prog="boltdown",
         description="Multi-segment download manager (IDM-like) - CLI front end.",
     )
     parser.add_argument(
@@ -139,7 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("-q", "--quiet", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("--version", action="version", version=f"idmclone {__version__}")
+    parser.add_argument("--version", action="version", version=f"boltdown {__version__}")
     return parser
 
 
@@ -233,7 +233,7 @@ def _check_update() -> int:
 
     newer = updates.check(__version__)
     if newer is None:
-        print(f"idmclone {__version__} is the newest release I can see")
+        print(f"boltdown {__version__} is the newest release I can see")
         return 0
     print(f"{newer.name} is available (you have {__version__})")
     if newer.url:
@@ -241,7 +241,7 @@ def _check_update() -> int:
     if newer.has_installer:
         size = newer.asset_size / 1048576
         print(f"installer: {newer.asset_name} ({size:.1f} MB)")
-        print(f"  idmclone-cli \"{newer.asset_url}\"   # download it with this app")
+        print(f"  boltdown-cli \"{newer.asset_url}\"   # download it with this app")
     return 0
 
 
@@ -253,7 +253,7 @@ def _remote(args: argparse.Namespace) -> int:
     def send(message: dict) -> dict | None:
         reply = endpoint.send(message)
         if reply is None:
-            print("IDMClone is not running", file=sys.stderr)
+            print("Boltdown is not running", file=sys.stderr)
         return reply
 
     if args.remote_list:

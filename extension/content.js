@@ -6,8 +6,8 @@
  */
 
 (() => {
-  if (window.__idmcloneInjected) return;
-  window.__idmcloneInjected = true;
+  if (window.__boltdownInjected) return;
+  window.__boltdownInjected = true;
 
   let host = null;
   let root = null;
@@ -52,7 +52,7 @@
   function ensureHost() {
     if (host) return;
     host = document.createElement("div");
-    host.id = "idmclone-root";
+    host.id = "boltdown-root";
     root = host.attachShadow({ mode: "closed" });
     const style = document.createElement("style");
     style.textContent = STYLE;
@@ -94,7 +94,7 @@
     panel = document.createElement("div");
     panel.className = "panel";
     const title = document.createElement("h4");
-    title.textContent = "IDMClone";
+    title.textContent = "Boltdown";
     panel.appendChild(title);
 
     if (!items.length) {

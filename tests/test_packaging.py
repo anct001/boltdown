@@ -13,7 +13,7 @@ from app.util import autostart
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PACKAGING = PROJECT_ROOT / "packaging"
-SPEC = PACKAGING / "idmclone.spec"
+SPEC = PACKAGING / "boltdown.spec"
 ISS = PACKAGING / "installer.iss"
 
 windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
@@ -29,7 +29,7 @@ def freeze(monkeypatch, exe: Path) -> None:
 
 
 def test_launch_command_quotes_the_frozen_executable(monkeypatch, tmp_path):
-    exe = tmp_path / "IDMClone.exe"
+    exe = tmp_path / "Boltdown.exe"
     exe.write_bytes(b"")
     freeze(monkeypatch, exe)
     command = autostart.launch_command()
@@ -41,7 +41,7 @@ def test_launch_command_prefers_the_installed_console_script(monkeypatch, tmp_pa
     """From a checkout, the venv's launcher already knows where the code is."""
     scripts = tmp_path / "Scripts"
     scripts.mkdir()
-    launcher = scripts / ("idmclone-gui.exe" if sys.platform == "win32" else "idmclone-gui")
+    launcher = scripts / ("boltdown-gui.exe" if sys.platform == "win32" else "boltdown-gui")
     launcher.write_bytes(b"")
     monkeypatch.setattr(sys, "frozen", False, raising=False)
     monkeypatch.setattr(sys, "executable", str(scripts / "python.exe"))
@@ -54,10 +54,10 @@ def test_an_explicit_executable_wins(tmp_path):
 
 @windows_only
 def test_autostart_round_trip_in_the_registry():
-    key = r"Software\IDMClone\test-autostart"
+    key = r"Software\Boltdown\test-autostart"
     try:
         assert not autostart.is_enabled(key)
-        command = autostart.enable(Path(r"C:\fake\IDMClone.exe"), key)
+        command = autostart.enable(Path(r"C:\fake\Boltdown.exe"), key)
         assert autostart.current(key) == command
         assert autostart.is_enabled(key)
         assert autostart.disable(key)
@@ -75,9 +75,9 @@ def test_autostart_round_trip_in_the_registry():
 
 @windows_only
 def test_apply_mirrors_a_boolean():
-    key = r"Software\IDMClone\test-apply"
+    key = r"Software\Boltdown\test-apply"
     try:
-        assert autostart.apply(True, Path(r"C:\fake\IDMClone.exe"), key)
+        assert autostart.apply(True, Path(r"C:\fake\Boltdown.exe"), key)
         assert autostart.is_enabled(key)
         assert autostart.apply(False, key_path=key)
         assert not autostart.is_enabled(key)
@@ -96,7 +96,7 @@ def test_apply_mirrors_a_boolean():
 def test_frozen_host_is_only_used_when_it_exists(monkeypatch, tmp_path):
     assert register.frozen_host() is None  # we are not frozen right now
 
-    freeze(monkeypatch, tmp_path / "IDMClone.exe")
+    freeze(monkeypatch, tmp_path / "Boltdown.exe")
     assert register.frozen_host() is None, "no host executable next to the app"
 
     host = tmp_path / register.FROZEN_HOST_NAME
@@ -107,7 +107,7 @@ def test_frozen_host_is_only_used_when_it_exists(monkeypatch, tmp_path):
 def test_a_packaged_manifest_points_at_the_host_executable(monkeypatch, tmp_path):
     host = tmp_path / register.FROZEN_HOST_NAME
     host.write_bytes(b"")
-    freeze(monkeypatch, tmp_path / "IDMClone.exe")
+    freeze(monkeypatch, tmp_path / "Boltdown.exe")
 
     launcher = register.write_launcher(tmp_path / "data")
     assert launcher == host, "an installed build has no interpreter to shim"
@@ -126,7 +126,7 @@ def test_the_host_starts_the_gui_not_itself(monkeypatch, tmp_path):
     """The bug this guards: `sys.executable` is the host, not the application."""
     gui = tmp_path / native_host.GUI_EXE_NAME
     gui.write_bytes(b"")
-    freeze(monkeypatch, tmp_path / "idmclone-host.exe")
+    freeze(monkeypatch, tmp_path / "boltdown-host.exe")
 
     command, cwd = native_host.app_command()
     assert command == [str(gui)]
@@ -162,18 +162,18 @@ def exe_names() -> list[str]:
 
 
 def test_the_three_executables_have_case_distinct_names():
-    """Windows file names are case-insensitive: `idmclone` would clobber the GUI."""
+    """Windows file names are case-insensitive: `boltdown` would clobber the GUI."""
     names = exe_names()
     assert len(names) == 3
     lowered = [n.lower() for n in names]
     assert len(set(lowered)) == len(lowered), f"names collide on Windows: {names}"
-    assert {"idmclone-host", "idmclone-cli"} <= set(names)
+    assert {"boltdown-host", "boltdown-cli"} <= set(names)
 
 
 def test_the_installer_refers_to_the_names_the_spec_builds():
     spec = SPEC.read_text(encoding="utf-8")
     iss = ISS.read_text(encoding="utf-8")
-    for name in ("IDMClone.exe", "idmclone-cli.exe", "idmclone-host.exe"):
+    for name in ("Boltdown.exe", "boltdown-cli.exe", "boltdown-host.exe"):
         assert name in iss, f"{name} is missing from the installer script"
         assert name.rsplit(".", 1)[0] in spec
     assert register.FROZEN_HOST_NAME in iss
@@ -225,3 +225,90 @@ def test_the_cli_still_needs_a_url():
 
     with pytest.raises(SystemExit):
         main([])
+
+
+# ------------------------------------------------------- the rename to Boltdown
+
+
+def test_an_existing_profile_is_adopted_after_the_rename(tmp_path, monkeypatch):
+    """A user upgrading from IDMClone keeps their database and settings."""
+    from app.util import paths
+
+    old = tmp_path / paths.LEGACY_NAME
+    old.mkdir()
+    (old / "boltdown.db").write_bytes(b"pretend database")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("BOLTDOWN_HOME", raising=False)
+    monkeypatch.delenv(paths.LEGACY_ENV, raising=False)
+    monkeypatch.setattr(paths, "is_portable", lambda: False)
+
+    resolved = paths.data_dir()
+    assert resolved == tmp_path / paths.APP_NAME
+    assert (resolved / "boltdown.db").read_bytes() == b"pretend database"
+    assert not old.exists(), "the old folder was moved, not copied"
+
+
+def test_the_old_environment_variable_still_works(tmp_path, monkeypatch):
+    from app.util import paths
+
+    monkeypatch.delenv("BOLTDOWN_HOME", raising=False)
+    monkeypatch.setenv(paths.LEGACY_ENV, str(tmp_path / "old-home"))
+    assert paths.data_dir() == tmp_path / "old-home"
+
+
+def test_a_download_interrupted_before_the_rename_still_resumes(tmp_path):
+    """The sidecar changed name; the bytes on disk did not."""
+    from app.core.resume import (
+        LEGACY_SUFFIX,
+        ResumeMeta,
+        cleanup,
+        legacy_meta_path_for,
+        meta_path_for,
+    )
+    from app.core.segment import Segment
+
+    part = tmp_path / "film.mkv.part"
+    part.write_bytes(b"x" * 1024)
+    meta = ResumeMeta(
+        url="https://x/film.mkv", final_url="https://x/film.mkv",
+        filename="film.mkv", size=4096, resumable=True,
+        segments=[Segment(index=0, start=0, end=4095, done=1024)],
+    )
+    legacy = legacy_meta_path_for(part)
+    assert legacy.name.endswith(LEGACY_SUFFIX)
+    meta.save(legacy)
+
+    loaded = ResumeMeta.load(meta_path_for(part))
+    assert loaded is not None and loaded.downloaded == 1024
+
+    # And cancelling removes both names, old and new.
+    cleanup(part)
+    assert not legacy.exists() and not part.exists()
+
+
+def test_nothing_still_answers_to_the_old_name():
+    """The rename has to be complete, or half the app looks for the wrong file."""
+    import re
+
+    skip = {".git", ".venv", "dist", "build", "__pycache__", ".pytest_cache"}
+    pattern = re.compile(r"idmclone|IDMClone|IDMCLONE|idmdown|idmedia", re.IGNORECASE)
+    offenders = []
+    here = Path(__file__).resolve()
+    for path in PROJECT_ROOT.rglob("*"):
+        if not path.is_file() or any(part in skip for part in path.parts):
+            continue
+        if path.suffix not in {".py", ".js", ".json", ".toml", ".iss", ".spec", ".md"}:
+            continue
+        if path.resolve() == here:
+            continue  # this file has to spell the old name to search for it
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for number, line in enumerate(text.splitlines(), start=1):
+            if not pattern.search(line):
+                continue
+            # The compatibility shims are supposed to mention the old name.
+            if any(word in line for word in
+                   ("LEGACY", "legacy", "before the rename", "pre-rename",
+                    "the previous version", "IDMClone (", "renamed")):
+                continue
+            offenders.append(f"{path.relative_to(PROJECT_ROOT)}:{number}: {line.strip()}")
+    assert not offenders, "old name still in:\n" + "\n".join(offenders[:15])

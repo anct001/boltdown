@@ -59,7 +59,7 @@ class TrayIcon(QSystemTrayIcon):
 
     def update_tooltip(self, speed: float, active: int) -> None:
         if active:
-            text = f"IDMClone - {tr('Downloading')}: {active}, {human_speed(speed)}"
+            text = f"Boltdown - {tr('Downloading')}: {active}, {human_speed(speed)}"
         else:
-            text = f"IDMClone - {tr('idle')}"
+            text = f"Boltdown - {tr('idle')}"
         self.setToolTip(text)

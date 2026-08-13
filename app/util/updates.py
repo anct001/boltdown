@@ -18,10 +18,10 @@ from .log import get_logger
 
 log = get_logger(__name__)
 
-REPOSITORY = "anct001/idmclone"
+REPOSITORY = "anct001/boltdown"
 API = "https://api.github.com/repos/{repo}/releases/latest"
 #: only ever pick an installer, never a source archive
-ASSET = re.compile(r"IDMCloneSetup-.*\.exe$", re.IGNORECASE)
+ASSET = re.compile(r"BoltdownSetup-.*\.exe$", re.IGNORECASE)
 TIMEOUT = 10.0
 
 

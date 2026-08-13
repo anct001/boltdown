@@ -191,12 +191,12 @@ def test_version_comparison(candidate, current, newer):
 
 RELEASE = {
     "tag_name": "v0.3.0",
-    "name": "IDMClone 0.3.0",
+    "name": "Boltdown 0.3.0",
     "html_url": "https://github.com/x/y/releases/tag/v0.3.0",
     "body": "notes",
     "assets": [
         {"name": "source.zip", "browser_download_url": "https://x/source.zip", "size": 1},
-        {"name": "IDMCloneSetup-0.3.0.exe",
+        {"name": "BoltdownSetup-0.3.0.exe",
          "browser_download_url": "https://x/setup.exe", "size": 52_000_000},
     ],
 }
@@ -205,7 +205,7 @@ RELEASE = {
 def test_the_installer_asset_is_the_one_picked():
     release = updates.release_from_dict(RELEASE)
     assert release is not None and release.has_installer
-    assert release.asset_name == "IDMCloneSetup-0.3.0.exe"
+    assert release.asset_name == "BoltdownSetup-0.3.0.exe"
     assert release.asset_url == "https://x/setup.exe"
 
 

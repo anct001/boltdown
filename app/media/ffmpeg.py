@@ -24,7 +24,7 @@ from ..util.paths import data_dir
 log = get_logger(__name__)
 
 EXE = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-ENV_VAR = "IDMCLONE_FFMPEG"
+ENV_VAR = "BOLTDOWN_FFMPEG"
 #: keep the last few stderr lines - ffmpeg puts the real reason at the end
 ERROR_TAIL = 12
 

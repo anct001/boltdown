@@ -1,4 +1,4 @@
-"""Render `packaging/idmclone.ico` from the same QPainter drawing the app uses.
+"""Render `packaging/boltdown.ico` from the same QPainter drawing the app uses.
 
     python scripts/make_app_icon.py
 
@@ -69,7 +69,7 @@ def build_ico(images: list[tuple[int, bytes]]) -> bytes:
 
 def main() -> int:
     app = QApplication.instance() or QApplication([])
-    target = PROJECT_ROOT / "packaging" / "idmclone.ico"
+    target = PROJECT_ROOT / "packaging" / "boltdown.ico"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(build_ico([(size, png_bytes(size)) for size in SIZES]))
     print(f"wrote {target} ({target.stat().st_size} bytes, {len(SIZES)} sizes)")

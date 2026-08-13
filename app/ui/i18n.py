@@ -167,13 +167,13 @@ _VI: dict[str, str] = {
     "Stop": "Dừng",
     "running": "đang chạy",
     "Do nothing": "Không làm gì",
-    "Exit IDMClone": "Thoát IDMClone",
+    "Exit Boltdown": "Thoát Boltdown",
     "Shut down": "Tắt máy",
     "Hibernate": "Ngủ đông",
     "Sleep": "Ngủ",
     "Do it now": "Làm ngay",
-    "Downloads finished - closing IDMClone":
-        "Tải xong — sắp đóng IDMClone",
+    "Downloads finished - closing Boltdown":
+        "Tải xong — sắp đóng Boltdown",
     "Downloads finished - shutting the computer down":
         "Tải xong — sắp tắt máy",
     "Downloads finished - hibernating": "Tải xong — sắp ngủ đông",

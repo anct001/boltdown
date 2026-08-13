@@ -28,10 +28,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DIST = PROJECT_ROOT / "dist"
-APP_DIR = DIST / "IDMClone"
+APP_DIR = DIST / "Boltdown"
 
 #: honest subject: nobody should mistake this for a validated identity
-TEST_SUBJECT = "CN=IDMClone Test Signing (self-signed), O=IDMClone"
+TEST_SUBJECT = "CN=Boltdown Test Signing (self-signed), O=Boltdown"
 TIMESTAMP_URL = "http://timestamp.digicert.com"
 
 
@@ -100,7 +100,7 @@ def find_cert(thumbprint: str | None = None) -> dict | None:
 def targets() -> list[Path]:
     """Everything worth signing: the executables, then the installer."""
     found = sorted(APP_DIR.glob("*.exe")) if APP_DIR.is_dir() else []
-    found += sorted(DIST.glob("IDMCloneSetup-*.exe"))
+    found += sorted(DIST.glob("BoltdownSetup-*.exe"))
     return found
 
 

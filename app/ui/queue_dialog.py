@@ -55,7 +55,7 @@ def _hhmm(value: str | None, fallback: tuple[int, int]) -> tuple[int, int]:
 
 ACTIONS: list[tuple[str, PostAction]] = [
     ("Do nothing", PostAction.NONE),
-    ("Exit IDMClone", PostAction.EXIT),
+    ("Exit Boltdown", PostAction.EXIT),
     ("Shut down", PostAction.SHUTDOWN),
     ("Hibernate", PostAction.HIBERNATE),
     ("Sleep", PostAction.SLEEP),

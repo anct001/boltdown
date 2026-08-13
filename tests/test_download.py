@@ -55,7 +55,7 @@ async def test_multi_segment_download_is_byte_exact(server, tmp_path):
     assert len(runner.segments) >= 6, "expected the file to be split"
     assert server.state.range_requests["multi.bin"] > before + 1
     assert not (tmp_path / "multi.bin.part").exists()
-    assert not (tmp_path / "multi.bin.part.idmdown").exists()
+    assert not (tmp_path / "multi.bin.part.boltdown").exists()
 
 
 async def test_single_connection_download(server, tmp_path):
@@ -161,7 +161,7 @@ async def test_pause_then_resume_completes_the_file(server, tmp_path):
     assert await task is TaskState.PAUSED
 
     part = tmp_path / "pause.bin.part"
-    meta = ResumeMeta.load(tmp_path / "pause.bin.part.idmdown")
+    meta = ResumeMeta.load(tmp_path / "pause.bin.part.boltdown")
     assert part.exists() and meta is not None
     assert 0 < meta.downloaded < len(data)
     assert meta.downloaded == first._downloaded
@@ -185,7 +185,7 @@ async def test_cancel_removes_partial_files(server, tmp_path):
     runner.request_cancel()
     assert await task is TaskState.CANCELLED
     assert not (tmp_path / "cancel.bin.part").exists()
-    assert not (tmp_path / "cancel.bin.part.idmdown").exists()
+    assert not (tmp_path / "cancel.bin.part.boltdown").exists()
     assert not (tmp_path / "cancel.bin").exists()
 
 
@@ -290,7 +290,7 @@ async def test_two_downloads_of_the_same_file_do_not_share_a_part_file(server, t
     for name in names:
         assert sha256(tmp_path / name) == sha256(data)
     assert not list(tmp_path.glob("*.part"))
-    assert not list(tmp_path.glob("*.idmdown"))
+    assert not list(tmp_path.glob("*.boltdown"))
 
 
 async def test_a_finished_file_is_never_overwritten(server, tmp_path):
@@ -334,3 +334,112 @@ async def test_resuming_reuses_the_part_file_instead_of_a_new_name(server, tmp_p
     assert finished.state is TaskState.COMPLETED
     assert [p.name for p in tmp_path.iterdir()] == ["resume-me.bin"]
     assert sha256(tmp_path / "resume-me.bin") == sha256(data)
+
+
+# ----------------------------------------------- changing the concurrency limit
+
+
+def test_the_concurrency_limit_can_be_raised_while_downloads_wait():
+    """Changing "maximum simultaneous downloads" used to need a restart."""
+    import asyncio
+
+    from app.core.engine import ConcurrencyLimit
+
+    async def scenario():
+        limit = ConcurrencyLimit(1)
+        started = []
+
+        async def worker(name):
+            async with limit:
+                started.append(name)
+                await asyncio.sleep(0.2)
+
+        tasks = [asyncio.create_task(worker(n)) for n in "ab"]
+        await asyncio.sleep(0.05)
+        assert started == ["a"], "the second one has to wait its turn"
+
+        limit.limit = 2
+        limit.wake()
+        await asyncio.sleep(0.05)
+        assert started == ["a", "b"], "raising the limit starts the waiter"
+        await asyncio.gather(*tasks)
+        assert limit.held == 0
+
+    asyncio.run(scenario())
+
+
+def test_lowering_the_limit_never_interrupts_a_running_download():
+    import asyncio
+
+    from app.core.engine import ConcurrencyLimit
+
+    async def scenario():
+        limit = ConcurrencyLimit(3)
+        async with limit:
+            async with limit:
+                limit.limit = 1          # user drags the spinbox down
+                assert limit.held == 2   # both keep running
+                waiting = asyncio.create_task(_hold(limit))
+                await asyncio.sleep(0.05)
+                assert not waiting.done(), "a third one must not start"
+            await asyncio.sleep(0.05)
+            assert not waiting.done(), "still over the new limit"
+        await asyncio.wait_for(waiting, timeout=1)
+
+    async def _hold(limit):
+        async with limit:
+            return True
+
+    asyncio.run(scenario())
+
+
+def test_the_engine_passes_a_new_limit_to_its_running_loop():
+    from app.core.engine import Engine
+
+    engine = Engine(max_concurrent=2)
+    engine.start()
+    try:
+        engine.max_concurrent = 5
+        assert engine.max_concurrent == 5
+        assert engine._sem is not None and engine._sem.limit == 5
+        engine.max_concurrent = 0   # nonsense values are clamped, not stored
+        assert engine.max_concurrent == 1
+    finally:
+        engine.stop(timeout=5)
+
+
+async def test_a_paused_download_is_not_wiped_by_a_different_one(server, tmp_path):
+    """Two unrelated files called `setup.exe`, the first one paused.
+
+    The second used to see a `.part` whose metadata did not match, decide the
+    file was stale, and delete it - throwing away however much of the first
+    download was already on disk.
+    """
+    mine = make_payload(6 * 1024 * 1024, seed=940)
+    theirs = make_payload(512 * 1024, seed=941)
+    slow_url = server.add_file("paused/setup.exe", mine)
+    other_url = server.add_file("elsewhere/setup.exe", theirs)
+
+    paused = TaskRunner(1, _request(f"{slow_url}?slow=30", tmp_path, connections=1))
+    task = asyncio.create_task(paused.run())
+    for _ in range(400):
+        await asyncio.sleep(0.02)
+        if paused.snapshot().downloaded > 256 * 1024:
+            break
+    paused.request_pause()
+    assert await task is TaskState.PAUSED
+    part = tmp_path / "setup.exe.part"
+    kept = part.stat().st_size
+    assert kept > 0
+
+    second = TaskRunner(2, _request(other_url, tmp_path))
+    assert await second.run() is TaskState.COMPLETED
+
+    assert part.exists(), "the paused download lost its part file"
+    assert part.stat().st_size == kept, "the paused download lost its bytes"
+    assert sha256(tmp_path / "setup (1).exe") == sha256(theirs)
+
+    # And the paused one still finishes, into its own name.
+    again = TaskRunner(3, _request(slow_url, tmp_path))
+    assert await again.run() is TaskState.COMPLETED
+    assert sha256(tmp_path / "setup.exe") == sha256(mine)

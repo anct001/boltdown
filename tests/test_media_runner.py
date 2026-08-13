@@ -165,7 +165,7 @@ async def test_media_runner_downloads_a_playlist(server, tmp_path, no_ffmpeg):
     assert runner.snapshot().percent == 100.0
     assert "probing" in events and "completed" in events
     # The scratch directory is gone once the file is in place.
-    assert not list(tmp_path.glob("*.idmedia"))
+    assert not list(tmp_path.glob("*.boltmedia"))
 
 
 async def test_pausing_a_media_task_keeps_the_segments(server, tmp_path, no_ffmpeg):
@@ -181,7 +181,7 @@ async def test_pausing_a_media_task_keeps_the_segments(server, tmp_path, no_ffmp
             break
     runner.request_pause()
     assert await task is TaskState.PAUSED
-    work = tmp_path / "pause.idmedia"
+    work = tmp_path / "pause.boltmedia"
     assert list((work / "hls").glob("*.bin"))
 
     resumed = MediaTaskRunner(2, hls_request(url, tmp_path, connections=4))
@@ -202,7 +202,7 @@ async def test_cancelling_a_media_task_removes_the_work_directory(server, tmp_pa
             break
     runner.request_cancel()
     assert await task is TaskState.CANCELLED
-    assert not (tmp_path / "cancel.idmedia").exists()
+    assert not (tmp_path / "cancel.boltmedia").exists()
 
 
 async def test_extracted_page_downloads_through_the_segmented_engine(
@@ -278,7 +278,7 @@ async def test_separate_video_and_audio_tracks_are_merged(server, tmp_path, monk
     output = runner.dest_path
     assert output is not None and output.name == "Clip.mp4"
     assert output.stat().st_size > video.stat().st_size
-    assert not (tmp_path / "Clip.idmedia").exists()
+    assert not (tmp_path / "Clip.boltmedia").exists()
 
 
 def test_engine_runs_a_playlist_task(server, tmp_path, no_ffmpeg):

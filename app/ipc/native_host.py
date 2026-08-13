@@ -26,7 +26,7 @@ LAUNCH_TIMEOUT = 20.0
 LAUNCH_POLL = 0.25
 
 
-GUI_EXE_NAME = "IDMClone.exe" if sys.platform == "win32" else "IDMClone"
+GUI_EXE_NAME = "Boltdown.exe" if sys.platform == "win32" else "Boltdown"
 
 
 def project_root() -> Path:
@@ -77,7 +77,7 @@ def deliver(message: dict[str, Any]) -> dict[str, Any]:
         return reply
 
     if not launch_app():
-        return {"ok": False, "error": "IDMClone is not installed correctly"}
+        return {"ok": False, "error": "Boltdown is not installed correctly"}
 
     deadline = time.monotonic() + LAUNCH_TIMEOUT
     while time.monotonic() < deadline:
@@ -85,7 +85,7 @@ def deliver(message: dict[str, Any]) -> dict[str, Any]:
         reply = endpoint.send(message)
         if reply is not None:
             return reply
-    return {"ok": False, "error": "IDMClone did not start in time"}
+    return {"ok": False, "error": "Boltdown did not start in time"}
 
 
 def main(argv: list[str] | None = None) -> int:

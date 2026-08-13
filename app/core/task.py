@@ -311,6 +311,17 @@ class TaskRunner:
             if meta is not None:
                 reason = meta.mismatch_reason(result)
                 if reason or not self.resumable:
+                    # The bytes on disk are not the bytes we want. Restarting
+                    # means deleting them, which is only ours to do when the
+                    # part file is ours: a paused download of something else
+                    # that happens to share the name keeps its progress and we
+                    # take the next free name.
+                    if not self._is_our_part(meta, result):
+                        log.info(
+                            "%s belongs to another download (%s); using another name",
+                            candidate, reason or "not resumable",
+                        )
+                        continue
                     log.warning(
                         "restarting %s from scratch: %s",
                         candidate, reason or "server no longer supports ranges",
@@ -325,6 +336,19 @@ class TaskRunner:
             self.filename = candidate
             return dest, part, meta
         raise FatalError(f"no free file name near {directory / self.filename}")
+
+    def _is_our_part(self, meta: ResumeMeta, result: ProbeResult) -> bool:
+        """Was this `.part` file left by *this* download?
+
+        Compared against both URLs at each end, because a redirect means the
+        address we asked for and the one we were served are rarely the same.
+        Only asked when the metadata does *not* match what the server is now
+        offering - a match means the same bytes, whatever URL produced them,
+        which matters for CDNs that sign every link afresh.
+        """
+        ours = {self.request.url, result.final_url} - {"", None}
+        theirs = {meta.url, meta.final_url} - {"", None}
+        return bool(ours & theirs)
 
     def _prepare_files(self, result: ProbeResult) -> None:
         directory = target_dir(

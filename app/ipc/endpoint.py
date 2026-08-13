@@ -1,7 +1,7 @@
 """Loopback IPC: how a second process reaches the running application.
 
 The server binds 127.0.0.1 on an ephemeral port and publishes `{port, token,
-pid}` to `%LOCALAPPDATA%\\IDMClone\\ipc.json`. Every request must carry the
+pid}` to `%LOCALAPPDATA%\\Boltdown\\ipc.json`. Every request must carry the
 token, so another user account on the same machine cannot drive the app even
 though the port is technically reachable from localhost.
 """
@@ -90,7 +90,7 @@ class IpcServer:
         self._server = _TCPServer(("127.0.0.1", 0), _Handler)
         self._server.owner = self  # type: ignore[attr-defined]
         self._thread = threading.Thread(
-            target=self._server.serve_forever, name="idmclone-ipc", daemon=True
+            target=self._server.serve_forever, name="boltdown-ipc", daemon=True
         )
         self._thread.start()
         self._publish()

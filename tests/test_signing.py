@@ -25,11 +25,11 @@ build = load("build")
 
 
 def test_targets_are_the_executables_then_the_installer(monkeypatch, tmp_path):
-    app = tmp_path / "IDMClone"
+    app = tmp_path / "Boltdown"
     app.mkdir()
-    for name in ("IDMClone.exe", "idmclone-cli.exe", "idmclone-host.exe"):
+    for name in ("Boltdown.exe", "boltdown-cli.exe", "boltdown-host.exe"):
         (app / name).write_bytes(b"")
-    setup = tmp_path / "IDMCloneSetup-0.1.0.exe"
+    setup = tmp_path / "BoltdownSetup-0.1.0.exe"
     setup.write_bytes(b"")
     (tmp_path / "notes.txt").write_text("ignored")
 
@@ -37,7 +37,7 @@ def test_targets_are_the_executables_then_the_installer(monkeypatch, tmp_path):
     monkeypatch.setattr(sign, "APP_DIR", app)
     found = sign.targets()
     assert {p.name for p in found[:-1]} == {
-        "IDMClone.exe", "idmclone-cli.exe", "idmclone-host.exe"
+        "Boltdown.exe", "boltdown-cli.exe", "boltdown-host.exe"
     }
     # The installer is signed last: it contains the others.
     assert found[-1] == setup
@@ -53,18 +53,18 @@ def test_a_self_signed_chain_is_not_treated_as_a_failure(monkeypatch):
     """`UnknownError` only means the root is not trusted - the file is signed."""
     monkeypatch.setattr(
         sign, "powershell",
-        lambda script, timeout=300: (0, "IDMClone.exe             UnknownError", ""),
+        lambda script, timeout=300: (0, "Boltdown.exe             UnknownError", ""),
     )
-    assert sign.sign([Path("IDMClone.exe")], "AB", None) == 0
+    assert sign.sign([Path("Boltdown.exe")], "AB", None) == 0
 
 
 @pytest.mark.parametrize("status", ["HashMismatch", "NotSigned"])
 def test_a_broken_signature_fails_the_build(monkeypatch, status):
     monkeypatch.setattr(
         sign, "powershell",
-        lambda script, timeout=300: (0, f"IDMClone.exe             {status}", ""),
+        lambda script, timeout=300: (0, f"Boltdown.exe             {status}", ""),
     )
-    assert sign.sign([Path("IDMClone.exe")], "AB", None) == 1
+    assert sign.sign([Path("Boltdown.exe")], "AB", None) == 1
 
 
 def test_the_timestamp_server_can_be_switched_off(monkeypatch):
@@ -72,7 +72,7 @@ def test_the_timestamp_server_can_be_switched_off(monkeypatch):
 
     def fake(script, timeout=300):
         seen.append(script)
-        return 0, "IDMClone.exe  Valid", ""
+        return 0, "Boltdown.exe  Valid", ""
 
     monkeypatch.setattr(sign, "powershell", fake)
     sign.sign([Path("a.exe")], "AB", None)

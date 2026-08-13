@@ -18,7 +18,7 @@ import json
 import struct
 from typing import IO, Any
 
-HOST_NAME = "com.idmclone.host"
+HOST_NAME = "com.boltdown.host"
 PROTOCOL_VERSION = 1
 MAX_MESSAGE = 1024 * 1024
 

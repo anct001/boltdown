@@ -10,7 +10,7 @@ import pytest
 
 # Keep logs / database out of the real user profile during tests.
 os.environ.setdefault(
-    "IDMCLONE_HOME", str(Path(tempfile.gettempdir()) / "idmclone-tests")
+    "BOLTDOWN_HOME", str(Path(tempfile.gettempdir()) / "boltdown-tests")
 )
 # Qt widgets must render without a display; set before PySide6 is imported.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

@@ -1,4 +1,4 @@
-"""Frozen entry point for the native messaging host (`idmclone-host.exe`).
+"""Frozen entry point for the native messaging host (`boltdown-host.exe`).
 
 This one must stay a *console* executable: native messaging is stdio, and a
 windowed build has none. It also stays out of the GUI exe so the browser

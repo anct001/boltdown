@@ -370,7 +370,7 @@ def test_ipc_bridge_validates_messages(qapp):
     bridge.downloadRequested.connect(captured.append)
 
     ping = bridge.handle({"type": "ping"})
-    assert ping["ok"] is True and ping["app"] == "IDMClone"
+    assert ping["ok"] is True and ping["app"] == "Boltdown"
 
     accepted = bridge.handle({"type": "download", "url": "https://h/a.zip"})
     assert accepted["ok"] is True
@@ -436,7 +436,7 @@ def test_second_instance_hands_over_its_urls(qapp, stack, tmp_path, monkeypatch)
     from app.ipc import endpoint
     from app.ui.ipc_bridge import IpcBridge
 
-    monkeypatch.setenv("IDMCLONE_HOME", str(tmp_path / "ipc"))
+    monkeypatch.setenv("BOLTDOWN_HOME", str(tmp_path / "ipc"))
     (tmp_path / "ipc").mkdir()
     controller, settings, _db = stack
     settings.set("ask_before_download", False)
@@ -511,3 +511,84 @@ def test_restoring_remembers_whether_the_name_was_settled(qapp, stack, tmp_path)
     restored = {i.db_id: i for i in fresh.items()}
     assert restored[typed.db_id].name_locked
     assert not restored[guessed.db_id].name_locked
+
+
+# ------------------------------- the CLI talks to the window, not past it
+
+
+def test_remote_commands_run_on_the_gui_thread(qapp):
+    """`--remote-list` reads the download table and writes to SQLite.
+
+    Both belong to the GUI thread. Answering the socket thread there directly
+    was a race - and sqlite3 objects are not fond of it either.
+    """
+    import threading
+
+    from PySide6.QtCore import QThread
+
+    from app.ipc.protocol import TYPE_LIST, TYPE_PAUSE
+    from app.ui.ipc_bridge import IpcBridge
+
+    bridge = IpcBridge()
+    seen: list[QThread] = []
+
+    def snapshot():
+        seen.append(QThread.currentThread())
+        return [{"id": 1, "name": "a.bin"}]
+
+    def control(action, db_id):
+        seen.append(QThread.currentThread())
+        return True
+
+    bridge.snapshot = snapshot
+    bridge.control = control
+    answers: list[dict] = []
+
+    def from_the_socket_thread():
+        answers.append(bridge.handle({"type": TYPE_LIST}))
+        answers.append(bridge.handle({"type": TYPE_PAUSE, "id": 1}))
+
+    worker = threading.Thread(target=from_the_socket_thread)
+    worker.start()
+    deadline = time.monotonic() + 5
+    while worker.is_alive() and time.monotonic() < deadline:
+        qapp.processEvents()      # the GUI thread, doing its job
+    worker.join(5)
+
+    assert answers == [
+        {"ok": True, "downloads": [{"id": 1, "name": "a.bin"}]},
+        {"ok": True},
+    ]
+    assert seen and all(t is qapp.thread() for t in seen), (
+        "the controller was touched from the socket thread"
+    )
+
+
+def test_a_wedged_window_does_not_hang_the_command_line(qapp, monkeypatch):
+    import threading
+
+    from app.ipc.protocol import TYPE_LIST
+    from app.ui import ipc_bridge
+
+    monkeypatch.setattr(ipc_bridge, "GUI_TIMEOUT", 0.2)
+    bridge = ipc_bridge.IpcBridge()
+    bridge.snapshot = lambda: []
+
+    answer: list[dict] = []
+    # Nobody processes events here, so the call can only time out.
+    worker = threading.Thread(
+        target=lambda: answer.append(bridge.handle({"type": TYPE_LIST}))
+    )
+    worker.start()
+    worker.join(5)
+    assert not worker.is_alive(), "the CLI would have waited for ever"
+    assert answer and answer[0]["ok"] is False
+
+
+def test_a_remote_command_still_works_from_the_gui_thread_itself(qapp):
+    from app.ipc.protocol import TYPE_LIST
+    from app.ui.ipc_bridge import IpcBridge
+
+    bridge = IpcBridge()
+    bridge.snapshot = lambda: [{"id": 7}]
+    assert bridge.handle({"type": TYPE_LIST}) == {"ok": True, "downloads": [{"id": 7}]}

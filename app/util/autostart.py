@@ -20,7 +20,7 @@ from .log import get_logger
 log = get_logger(__name__)
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-VALUE_NAME = "IDMClone"
+VALUE_NAME = "Boltdown"
 TRAY_FLAG = "--tray"
 
 
@@ -36,14 +36,14 @@ def launcher() -> Path:
     """The executable Windows should start at login.
 
     A frozen build is a single exe. From a checkout, `pip install -e .` leaves
-    `idmclone-gui.exe` in the venv's Scripts directory - a windowless launcher
+    `boltdown-gui.exe` in the venv's Scripts directory - a windowless launcher
     that already knows where the package lives, which a bare `-m app` would not
     (the Run key starts processes in system32, so the package would not import).
     """
     if getattr(sys, "frozen", False):
         return Path(sys.executable)
     scripts = Path(sys.executable).parent
-    for name in ("idmclone-gui.exe", "idmclone-gui"):
+    for name in ("boltdown-gui.exe", "boltdown-gui"):
         candidate = scripts / name
         if candidate.exists():
             return candidate

@@ -1,5 +1,5 @@
 /**
- * IDMClone browser integration - MV3 service worker.
+ * Boltdown browser integration - MV3 service worker.
  *
  * Two jobs:
  *  1. Take over ordinary downloads: cancel Chrome's transfer and hand the URL
@@ -12,7 +12,7 @@
  * that we cannot rebuild - per-tab media lists go to chrome.storage.session.
  */
 
-const HOST = "com.idmclone.host";
+const HOST = "com.boltdown.host";
 
 const DEFAULTS = {
   enabled: true,
@@ -170,7 +170,7 @@ async function takeOver(item, suggestedName) {
 
   const response = await sendNative(payload);
   if (!response.ok) {
-    notify("IDMClone", `Could not hand over the download: ${response.error}`);
+    notify("Boltdown", `Could not hand over the download: ${response.error}`);
   }
 }
 
@@ -269,7 +269,7 @@ async function route(message, sender) {
         streaming: Boolean(message.streaming),
         page: Boolean(message.page)
       });
-      if (!response.ok) notify("IDMClone", response.error || "unknown error");
+      if (!response.ok) notify("Boltdown", response.error || "unknown error");
       return response;
     }
 
@@ -281,7 +281,7 @@ async function route(message, sender) {
         cookie: await cookieHeader(message.url),
         user_agent: navigator.userAgent
       });
-      if (!response.ok) notify("IDMClone", response.error || "unknown error");
+      if (!response.ok) notify("Boltdown", response.error || "unknown error");
       return response;
     }
 
@@ -304,11 +304,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * link, you send it without navigating to it first.
  */
 const MENUS = [
-  { id: "idmclone-link", title: "Tải link này bằng IDMClone", contexts: ["link"] },
-  { id: "idmclone-media", title: "Tải media này bằng IDMClone",
+  { id: "boltdown-link", title: "Tải link này bằng Boltdown", contexts: ["link"] },
+  { id: "boltdown-media", title: "Tải media này bằng Boltdown",
     contexts: ["image", "video", "audio"] },
-  { id: "idmclone-page", title: "Tải mọi link trên trang này", contexts: ["page"] },
-  { id: "idmclone-selection", title: "Tải các link vừa bôi đen",
+  { id: "boltdown-page", title: "Tải mọi link trên trang này", contexts: ["page"] },
+  { id: "boltdown-selection", title: "Tải các link vừa bôi đen",
     contexts: ["selection"] }
 ];
 
@@ -354,7 +354,7 @@ async function sendMany(urls, referer) {
     });
     if (response.ok) sent += 1;
     else {
-      notify("IDMClone", response.error || "unknown error");
+      notify("Boltdown", response.error || "unknown error");
       break;
     }
   }
@@ -364,16 +364,16 @@ async function sendMany(urls, referer) {
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const settings = await getSettings();
   if (!settings.enabled) {
-    notify("IDMClone", "Tiện ích đang tắt trong popup.");
+    notify("Boltdown", "Tiện ích đang tắt trong popup.");
     return;
   }
   const referer = (tab && tab.url) || info.pageUrl;
 
-  if (info.menuItemId === "idmclone-link" && info.linkUrl) {
+  if (info.menuItemId === "boltdown-link" && info.linkUrl) {
     await sendMany([info.linkUrl], referer);
     return;
   }
-  if (info.menuItemId === "idmclone-media" && (info.srcUrl || info.linkUrl)) {
+  if (info.menuItemId === "boltdown-media" && (info.srcUrl || info.linkUrl)) {
     await sendMany([info.srcUrl || info.linkUrl], referer);
     return;
   }
@@ -381,18 +381,18 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   // Whole page or just the selection: read the links out of the DOM, hand
   // them over one at a time so a failure stops at the first one.
-  const selectionOnly = info.menuItemId === "idmclone-selection";
+  const selectionOnly = info.menuItemId === "boltdown-selection";
   let urls = [];
   try {
     urls = await linksOnPage(tab.id, selectionOnly);
   } catch (error) {
-    notify("IDMClone", `Không đọc được trang: ${error}`);
+    notify("Boltdown", `Không đọc được trang: ${error}`);
     return;
   }
   if (!urls.length) {
-    notify("IDMClone", "Không thấy link nào.");
+    notify("Boltdown", "Không thấy link nào.");
     return;
   }
   const sent = await sendMany(urls, referer);
-  notify("IDMClone", `Đã gửi ${sent}/${urls.length} link sang IDMClone.`);
+  notify("Boltdown", `Đã gửi ${sent}/${urls.length} link sang Boltdown.`);
 });

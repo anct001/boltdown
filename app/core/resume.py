@@ -1,4 +1,4 @@
-"""Resume metadata sidecar (`<file>.part.idmdown`).
+"""Resume metadata sidecar (`<file>.part.boltdown`).
 
 Per-segment progress changes several times a second, which is far too often
 for SQLite. It lives in a small JSON file next to the `.part` file instead,
@@ -18,7 +18,9 @@ from .segment import Segment
 log = get_logger(__name__)
 
 FORMAT_VERSION = 1
-SUFFIX = ".idmdown"
+SUFFIX = ".boltdown"
+#: what the sidecar was called before the rename
+LEGACY_SUFFIX = ".idmdown"
 
 
 @dataclass(slots=True)
@@ -82,6 +84,13 @@ class ResumeMeta:
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except FileNotFoundError:
+            # A download interrupted by the pre-rename version left its
+            # metadata under the old name; reading it means those bytes are
+            # not thrown away.
+            legacy = Path(str(path).replace(SUFFIX, LEGACY_SUFFIX))
+            if legacy != path and legacy.exists():
+                log.info("continuing a download started before the rename")
+                return cls.load(legacy)
             return None
         except (OSError, json.JSONDecodeError, KeyError) as exc:
             log.warning("ignoring unreadable resume metadata %s: %s", path, exc)
@@ -120,13 +129,23 @@ class ResumeMeta:
         return None
 
 
+def legacy_meta_path_for(part_path: Path) -> Path:
+    """Where a download interrupted by the previous version left its metadata."""
+    return Path(str(part_path) + LEGACY_SUFFIX)
+
+
 def meta_path_for(part_path: Path) -> Path:
     return Path(str(part_path) + SUFFIX)
 
 
 def cleanup(part_path: Path) -> None:
     """Remove the part file and its metadata (used on cancel / restart)."""
-    for candidate in (meta_path_for(part_path), Path(str(meta_path_for(part_path)) + ".tmp"), part_path):
+    for candidate in (
+        meta_path_for(part_path),
+        Path(str(meta_path_for(part_path)) + ".tmp"),
+        legacy_meta_path_for(part_path),   # left by the pre-rename version
+        part_path,
+    ):
         try:
             candidate.unlink()
         except FileNotFoundError:

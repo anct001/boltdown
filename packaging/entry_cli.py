@@ -1,4 +1,4 @@
-"""Frozen entry point for the console tool (`idmclone.exe`)."""
+"""Frozen entry point for the console tool (`boltdown.exe`)."""
 
 from __future__ import annotations
 

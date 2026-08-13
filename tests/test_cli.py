@@ -165,7 +165,7 @@ def test_hard_kill_then_rerun_resumes(server, tmp_path):
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     part = tmp_path / "killed.bin.part"
-    meta = tmp_path / "killed.bin.part.idmdown"
+    meta = tmp_path / "killed.bin.part.boltdown"
     deadline = time.monotonic() + 30
     try:
         while time.monotonic() < deadline:

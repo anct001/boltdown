@@ -312,10 +312,9 @@ class HlsDownloader:
             raise TransientError(f"{len(missing)} segments are still missing")
 
         raw = self.work_dir / "stream.raw"
-        with open(raw, "wb") as out:
-            for part in parts:
-                with open(part, "rb") as fh:
-                    shutil.copyfileobj(fh, out, CHUNK_SIZE)
+        # Off the event loop: joining a feature-length stream moves gigabytes,
+        # and every other download shares this thread.
+        await asyncio.to_thread(_join, parts, raw)
 
         self.output.parent.mkdir(parents=True, exist_ok=True)
         binary = ffmpeg_mod.find_ffmpeg(self.ffmpeg_path)
@@ -370,3 +369,11 @@ __all__ = [
     "UnsupportedStream",
     "decrypt_aes128",
 ]
+
+
+def _join(parts: list[Path], destination: Path) -> None:
+    """Append every part into one file. Runs on a worker thread."""
+    with open(destination, "wb") as out:
+        for part in parts:
+            with open(part, "rb") as fh:
+                shutil.copyfileobj(fh, out, CHUNK_SIZE)

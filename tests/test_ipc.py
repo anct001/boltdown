@@ -80,7 +80,7 @@ def test_is_streaming_url(url, expected):
 
 @pytest.fixture
 def ipc_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("IDMCLONE_HOME", str(tmp_path))
+    monkeypatch.setenv("BOLTDOWN_HOME", str(tmp_path))
     return tmp_path
 
 
@@ -222,7 +222,7 @@ def test_install_rejects_bad_extension_ids(tmp_path):
 def test_install_and_uninstall_registry(tmp_path):
     import winreg
 
-    prefix = "Software\\IDMCloneTest\\"
+    prefix = "Software\\BoltdownTest\\"
     extension_id = "b" * 32
     try:
         results = register.install(
@@ -240,7 +240,7 @@ def test_install_and_uninstall_registry(tmp_path):
         assert set(removed) == {"chrome", "edge"}
         assert register.status(key_prefix=prefix)["chrome"] is None
     finally:
-        _delete_tree(winreg, winreg.HKEY_CURRENT_USER, "Software\\IDMCloneTest")
+        _delete_tree(winreg, winreg.HKEY_CURRENT_USER, "Software\\BoltdownTest")
 
 
 # ------------------------------------------------------------ end to end (host)
@@ -265,7 +265,7 @@ def test_launcher_relays_a_real_native_message(ipc_home, tmp_path):
     with endpoint.IpcServer(handler):
         env = {
             **os.environ,
-            "IDMCLONE_HOME": str(ipc_home),
+            "BOLTDOWN_HOME": str(ipc_home),
             "PYTHONIOENCODING": "utf-8",
         }
         proc = subprocess.Popen(

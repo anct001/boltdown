@@ -285,5 +285,5 @@ async def test_merge_tracks_produces_one_file(tmp_path):
 
 def test_missing_ffmpeg_raises_a_helpful_error(monkeypatch):
     monkeypatch.setattr(ffmpeg_mod, "find_ffmpeg", lambda *a, **k: None)
-    with pytest.raises(ffmpeg_mod.FfmpegMissing, match="IDMCLONE_FFMPEG"):
+    with pytest.raises(ffmpeg_mod.FfmpegMissing, match="BOLTDOWN_FFMPEG"):
         ffmpeg_mod.require_ffmpeg()

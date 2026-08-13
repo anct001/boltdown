@@ -142,6 +142,9 @@ class Controller(QObject):
     def start(self) -> None:
         self.engine.start()
         self.restore()
+        if self.settings.get("use_system_proxy"):
+            # Read the PAC file now, so the first download does not have to.
+            _pac.prefetch(proxy.system_proxy().pac_url)
 
     def shutdown(self) -> None:
         for item in self._items.values():
@@ -459,7 +462,7 @@ class Controller(QObject):
         chosen_proxy = proxy.resolve(
             tuned["proxy"] or self.settings.get("proxy"),
             use_system=bool(self.settings.get("use_system_proxy")),
-            fetch_pac=_read_pac,
+            fetch_pac=_pac.read,
         )
         if chosen_proxy.needs_socks_package:
             log.warning("socks proxy requested but socksio is not installed")
@@ -555,11 +558,8 @@ class Controller(QObject):
             log.exception("could not persist download %d", item.db_id)
 
 
-def _read_pac(url: str) -> str:
-    """Fetch a PAC script so `proxy.resolve` can pick literals out of it."""
-    import httpx
-
-    return httpx.get(url, timeout=8.0).text
+#: shared by every download; fetches off the GUI thread and caches the answer
+_pac = proxy.PacCache()
 
 
 def _media_name(url: str) -> str | None:

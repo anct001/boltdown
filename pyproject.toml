@@ -1,6 +1,6 @@
 [project]
-name = "idmclone"
-version = "0.3.0"
+name = "boltdown"
+version = "0.4.0"
 description = "Multi-segment download manager for Windows (IDM-like)"
 requires-python = ">=3.11"
 dependencies = [
@@ -27,10 +27,10 @@ dev = [
 ]
 
 [project.scripts]
-idmclone = "app.cli:main"
+boltdown = "app.cli:main"
 
 [project.gui-scripts]
-idmclone-gui = "app.gui:main"
+boltdown-gui = "app.gui:main"
 
 [build-system]
 requires = ["setuptools>=68"]

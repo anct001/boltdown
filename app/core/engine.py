@@ -27,6 +27,44 @@ log = get_logger(__name__)
 EventListener = Callable[["EngineEvent"], None]
 
 
+class ConcurrencyLimit:
+    """`asyncio.Semaphore` whose ceiling can move while tasks hold it.
+
+    The user can change "maximum simultaneous downloads" in the settings at
+    any moment, and a plain semaphore fixes its count at construction - the
+    new number would only take effect after a restart. Raising the limit wakes
+    the waiters immediately; lowering it never interrupts a running download,
+    it just stops the next one from starting until the count drains.
+
+    `limit` may be written from any thread (a plain attribute assignment);
+    `wake` must be called on the loop thread, which `Engine` arranges.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = max(1, int(limit))
+        self.held = 0
+        self._changed = asyncio.Event()
+
+    async def __aenter__(self) -> "ConcurrencyLimit":
+        while True:
+            # Clearing *before* the test is what makes this free of lost
+            # wake-ups: a release that lands after the clear is seen by the
+            # test, and one that lands after the test wakes the wait.
+            self._changed.clear()
+            if self.held < self.limit:
+                self.held += 1
+                return self
+            await self._changed.wait()
+
+    async def __aexit__(self, *_exc) -> None:
+        self.held -= 1
+        self._changed.set()
+
+    def wake(self) -> None:
+        """Re-test the limit; call after raising it. Loop thread only."""
+        self._changed.set()
+
+
 @dataclass(slots=True)
 class EngineEvent:
     type: str
@@ -42,7 +80,7 @@ class Engine:
         speed_limit: int | None = None,
         on_event: EventListener | None = None,
     ) -> None:
-        self.max_concurrent = max_concurrent
+        self._max_concurrent = max(1, int(max_concurrent))
         self._on_event = on_event
         self._global_bucket = TokenBucket(speed_limit)
 
@@ -59,8 +97,24 @@ class Engine:
         self._states: dict[int, TaskState] = {}
         self._supervisors: dict[int, asyncio.Task] = {}
         self._active: set[int] = set()
-        self._sem: asyncio.Semaphore | None = None
+        self._sem: ConcurrencyLimit | None = None
         self._lock = threading.Lock()
+
+    @property
+    def max_concurrent(self) -> int:
+        return self._max_concurrent
+
+    @max_concurrent.setter
+    def max_concurrent(self, value: int) -> None:
+        """Change the ceiling on a running engine; safe from any thread."""
+        self._max_concurrent = max(1, int(value))
+        limit, loop = self._sem, self._loop
+        if limit is None:
+            return
+        limit.limit = self._max_concurrent
+        if loop is not None and loop.is_running():
+            # Raising the limit has to wake whatever is already waiting.
+            loop.call_soon_threadsafe(limit.wake)
 
     # ------------------------------------------------------------- lifecycle
 
@@ -68,7 +122,7 @@ class Engine:
         if self._thread is not None:
             return
         self._thread = threading.Thread(
-            target=self._run_loop, name="idmclone-engine", daemon=True
+            target=self._run_loop, name="boltdown-engine", daemon=True
         )
         self._thread.start()
         self._ready.wait(timeout=10)
@@ -77,7 +131,7 @@ class Engine:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop
-        self._sem = asyncio.Semaphore(self.max_concurrent)
+        self._sem = ConcurrencyLimit(self._max_concurrent)
         self._ready.set()
         try:
             loop.run_forever()

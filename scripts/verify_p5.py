@@ -132,9 +132,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--work-dir", default=None)
     args = parser.parse_args(argv)
 
-    out = Path(args.work_dir or tempfile.mkdtemp(prefix="idmclone-p5-"))
+    out = Path(args.work_dir or tempfile.mkdtemp(prefix="boltdown-p5-"))
     (out / "grab").mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("IDMCLONE_HOME", str(out / "home"))
+    os.environ.setdefault("BOLTDOWN_HOME", str(out / "home"))
 
     app = QApplication.instance() or QApplication([])
     server = FileServer().start()

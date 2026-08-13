@@ -4,9 +4,9 @@
 
 Two steps, the second optional:
 
-1. PyInstaller turns `packaging/idmclone.spec` into `dist/IDMClone/` - three
+1. PyInstaller turns `packaging/boltdown.spec` into `dist/Boltdown/` - three
    executables sharing one copy of Qt.
-2. Inno Setup (`ISCC.exe`) wraps that folder into `dist/IDMCloneSetup-<ver>.exe`.
+2. Inno Setup (`ISCC.exe`) wraps that folder into `dist/BoltdownSetup-<ver>.exe`.
    Skipped with a note when Inno Setup is not installed, so the build still
    produces something usable on a machine without it.
 """
@@ -25,11 +25,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from app import __version__  # noqa: E402
 
-SPEC = PROJECT_ROOT / "packaging" / "idmclone.spec"
+SPEC = PROJECT_ROOT / "packaging" / "boltdown.spec"
 ISS = PROJECT_ROOT / "packaging" / "installer.iss"
 DIST = PROJECT_ROOT / "dist"
 BUILD = PROJECT_ROOT / "build"
-APP_DIR = DIST / "IDMClone"
+APP_DIR = DIST / "Boltdown"
 
 def iscc_candidates() -> list[Path]:
     """Where Inno Setup ends up, machine-wide or per-user.
@@ -66,7 +66,7 @@ def run(argv: list[str], **kwargs) -> int:
 
 
 def build_icon() -> None:
-    icon = PROJECT_ROOT / "packaging" / "idmclone.ico"
+    icon = PROJECT_ROOT / "packaging" / "boltdown.ico"
     if icon.exists():
         return
     run([sys.executable, str(PROJECT_ROOT / "scripts" / "make_app_icon.py")])
@@ -152,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         code = build_installer()
         if code != 0:
             return code
-        setup = DIST / f"IDMCloneSetup-{__version__}.exe"
+        setup = DIST / f"BoltdownSetup-{__version__}.exe"
         if setup.exists():
             if args.sign is not None:
                 code = sign_files([setup], args.sign or None)

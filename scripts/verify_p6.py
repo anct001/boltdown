@@ -1,16 +1,16 @@
 """P6 acceptance harness - exercise the *packaged* build, not the checkout.
 
     python scripts/build.py --no-installer
-    python scripts/verify_p6.py [--dist dist/IDMClone]
+    python scripts/verify_p6.py [--dist dist/Boltdown]
 
-Four checks, all against `dist/IDMClone`:
+Four checks, all against `dist/Boltdown`:
 
 1. Layout    - the three executables exist and none of them shadow another
                (Windows file names are case-insensitive).
-2. CLI       - `idmclone-cli.exe` downloads a file from a local server, which
+2. CLI       - `boltdown-cli.exe` downloads a file from a local server, which
                also proves the frozen build found its CA bundle and Qt-free
                console path.
-3. Host      - `idmclone-host.exe` speaks native messaging, starts the windowed
+3. Host      - `boltdown-host.exe` speaks native messaging, starts the windowed
                application when nothing is running, and answers a ping.
 4. Handover  - a `download` message sent the way Chrome sends it ends with the
                file on disk.
@@ -36,9 +36,9 @@ from app.storage.db import Database  # noqa: E402
 from app.storage.settings import Settings  # noqa: E402
 from tests.server import FileServer  # noqa: E402
 
-GUI_EXE = "IDMClone.exe" if os.name == "nt" else "IDMClone"
-CLI_EXE = "idmclone-cli.exe" if os.name == "nt" else "idmclone-cli"
-HOST_EXE = "idmclone-host.exe" if os.name == "nt" else "idmclone-host"
+GUI_EXE = "Boltdown.exe" if os.name == "nt" else "Boltdown"
+CLI_EXE = "boltdown-cli.exe" if os.name == "nt" else "boltdown-cli"
+HOST_EXE = "boltdown-host.exe" if os.name == "nt" else "boltdown-host"
 
 
 def report(name: str, ok: bool, detail: str) -> bool:
@@ -127,7 +127,7 @@ def check_handover(dist: Path, server: FileServer, out: Path, payload: bytes) ->
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dist", default=str(PROJECT_ROOT / "dist" / "IDMClone"))
+    parser.add_argument("--dist", default=str(PROJECT_ROOT / "dist" / "Boltdown"))
     parser.add_argument("--size-kb", type=int, default=3072)
     parser.add_argument("--work-dir", default=None)
     args = parser.parse_args(argv)
@@ -142,9 +142,9 @@ def main(argv: list[str] | None = None) -> int:
     downloads.mkdir(parents=True, exist_ok=True)
     # Keep the packaged app out of the real profile, and let it download
     # without asking - it has no visible window in this harness.
-    os.environ["IDMCLONE_HOME"] = str(work / "home")
-    Path(os.environ["IDMCLONE_HOME"]).mkdir(parents=True, exist_ok=True)
-    db = Database(Path(os.environ["IDMCLONE_HOME"]) / "idmclone.db")
+    os.environ["BOLTDOWN_HOME"] = str(work / "home")
+    Path(os.environ["BOLTDOWN_HOME"]).mkdir(parents=True, exist_ok=True)
+    db = Database(Path(os.environ["BOLTDOWN_HOME"]) / "boltdown.db")
     Settings(db).update({
         "ask_before_download": False,
         "download_dir": str(downloads),

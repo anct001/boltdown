@@ -8,7 +8,7 @@ Three checks, all against a local server so results are reproducible:
 2. Speedup       - against a server that throttles *per connection* (what a
                    real CDN does), N segments beat 1 by roughly N times.
 3. Crash resume  - hard-kill the CLI mid-download, rerun, expect a byte-exact
-                   file and no leftover .part / .idmdown.
+                   file and no leftover .part / .boltdown.
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ def main_verify(argv: list[str] | None = None) -> int:
         out = work / "resume"
         out.mkdir()
         part = out / "payload.bin.part"
-        meta = out / "payload.bin.part.idmdown"
+        meta = out / "payload.bin.part.boltdown"
         env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "PYTHONIOENCODING": "utf-8"}
         proc = subprocess.Popen(
             [sys.executable, "-m", "app", server.url_for("payload.bin"),

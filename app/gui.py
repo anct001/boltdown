@@ -43,8 +43,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     app = QApplication(sys.argv[:1])
-    app.setApplicationName("IDMClone")
-    app.setOrganizationName("IDMClone")
+    app.setApplicationName("Boltdown")
+    app.setOrganizationName("Boltdown")
     app.setWindowIcon(icons.app_icon())
     # The tray icon keeps the app alive after the window is closed.
     app.setQuitOnLastWindowClosed(False)
@@ -74,8 +74,8 @@ def main(argv: list[str] | None = None) -> int:
     bridge = IpcBridge()
     bridge.downloadRequested.connect(window.handle_ipc_download)
     bridge.showRequested.connect(window.handle_ipc_show)
-    # Read-only view and control, for `idmclone-cli --remote-*`. Both run on
-    # the IPC thread, so they only touch the controller's plain data.
+    # Read-only view and control, for `boltdown-cli --remote-*`. The bridge
+    # runs both on the GUI thread and waits for the answer.
     bridge.snapshot = window.remote_snapshot
     bridge.control = window.remote_control
     server = endpoint.IpcServer(bridge.handle)

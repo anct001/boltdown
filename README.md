@@ -1,4 +1,4 @@
-# IDMClone
+# Boltdown
 
 Trình quản lý tải xuống đa luồng cho Windows, tính năng hướng theo Internet Download Manager.
 
@@ -13,7 +13,7 @@ proxy SOCKS5, nhập cookie, thống kê, điều khiển từ dòng lệnh. L�
 
 ## Cài đặt
 
-Người dùng cuối: chạy `IDMCloneSetup-0.3.0.exe` (xem mục [Đóng gói](#đóng-gói)
+Người dùng cuối: chạy `BoltdownSetup-0.3.0.exe` (xem mục [Đóng gói](#đóng-gói)
 để tự dựng). Bản cài đặt đã kèm sẵn Python và Qt nên máy sạch không cần cài gì
 thêm.
 
@@ -88,7 +88,7 @@ Ba bước, làm theo đúng thứ tự vì bước 3 cần ID sinh ra ở bư�
 
 ```bash
 .venv/Scripts/python -m app.ipc.register --install <extension-id>   # từ mã nguồn
-idmclone-cli.exe --register-host <extension-id>                     # bản đóng gói
+boltdown-cli.exe --register-host <extension-id>                     # bản đóng gói
 ```
 
 hoặc mở **Tuỳ chọn → Tích hợp trình duyệt**, dán ID vào rồi bấm *Đăng ký* — cách
@@ -117,7 +117,7 @@ Chrome extension ──native messaging (4-byte length + JSON trên stdio)──
               IpcBridge (queued signal) ──> MainWindow.handle_ipc_download
 ```
 
-Token nằm trong `%LOCALAPPDATA%\IDMClone\ipc.json`; mọi tin nhắn không có token
+Token nằm trong `%LOCALAPPDATA%\Boltdown\ipc.json`; mọi tin nhắn không có token
 đúng đều bị từ chối, nên tiến trình của người dùng khác trên cùng máy không điều
 khiển được app dù cổng loopback về mặt kỹ thuật vẫn kết nối được.
 
@@ -163,7 +163,7 @@ Ba đường đi, chọn theo URL:
 Điểm khác biệt với yt-dlp chạy một mình: yt-dlp **chỉ làm việc bóc URL**, còn
 phần tải vẫn là engine chia đoạn của app — nên vẫn nhanh gấp nhiều lần và vẫn
 resume được. Tạm dừng giữa chừng thì các segment đã tải nằm trong thư mục
-`<tên video>.idmedia` cạnh file đích; chạy lại là tải tiếp từ đó.
+`<tên video>.boltmedia` cạnh file đích; chạy lại là tải tiếp từ đó.
 
 `--quality 1080` là **chặn trên**: nếu không có bản 1080p thì lấy bản cao nhất
 còn dưới mức đó. Không có audio riêng thì bản 360p có tiếng được ưu tiên hơn bản
@@ -237,7 +237,7 @@ phải 200. Dòng lệnh: `--playlist`.
   đó từ Chrome/Edge/Brave (khoá AES qua DPAPI, giá trị AES-256-GCM). Chỉ tài
   khoản Windows hiện tại giải được hồ sơ của chính mình.
 - **Danh mục sửa được**: **Tuỳ chọn → Danh mục**, mỗi dòng `Tên = đuôi, đuôi`.
-- **Chế độ portable**: đặt tệp rỗng tên `idmclone.portable` cạnh exe, dữ liệu và
+- **Chế độ portable**: đặt tệp rỗng tên `boltdown.portable` cạnh exe, dữ liệu và
   cấu hình chuyển vào thư mục `data` bên cạnh chương trình.
 - **Sau khi tải xong**: tuỳ chọn tự giải nén (chặn đường dẫn thoát khỏi thư mục)
   và quét bằng Microsoft Defender; thêm URL đã tải rồi thì app hỏi lại trước.
@@ -250,14 +250,14 @@ riêng nào để lệch.
 
 ## Điều khiển từ dòng lệnh
 
-Khi app đang chạy, `idmclone-cli` nói chuyện với nó qua socket IPC sẵn có:
+Khi app đang chạy, `boltdown-cli` nói chuyện với nó qua socket IPC sẵn có:
 
 ```bash
-idmclone-cli --remote-add "https://example.com/file.zip"
-idmclone-cli --remote-list
-idmclone-cli --remote-pause 3      # bỏ số để dừng tất cả
-idmclone-cli --remote-resume
-idmclone-cli --check-update
+boltdown-cli --remote-add "https://example.com/file.zip"
+boltdown-cli --remote-list
+boltdown-cli --remote-pause 3      # bỏ số để dừng tất cả
+boltdown-cli --remote-resume
+boltdown-cli --check-update
 ```
 
 ## Hàng đợi và hẹn giờ
@@ -326,16 +326,16 @@ thiếu cái đó nhiều CDN trả 403.
 
 Ra hai thứ trong `dist/`:
 
-- `dist/IDMClone/` — thư mục chạy được ngay, ~104 MB, gồm **ba** exe dùng chung
+- `dist/Boltdown/` — thư mục chạy được ngay, ~104 MB, gồm **ba** exe dùng chung
   một bản Qt:
 
 | Tệp | Kiểu | Việc |
 |---|---|---|
-| `IDMClone.exe` | windowed | giao diện, cái người dùng bấm |
-| `idmclone-cli.exe` | console | dòng lệnh + `--register-host` trên máy không có Python |
-| `idmclone-host.exe` | console | native messaging cho Chrome/Edge |
+| `Boltdown.exe` | windowed | giao diện, cái người dùng bấm |
+| `boltdown-cli.exe` | console | dòng lệnh + `--register-host` trên máy không có Python |
+| `boltdown-host.exe` | console | native messaging cho Chrome/Edge |
 
-- `dist/IDMCloneSetup-0.3.0.exe` — bản cài đặt Inno Setup, ~50 MB (chỉ dựng khi
+- `dist/BoltdownSetup-0.3.0.exe` — bản cài đặt Inno Setup, ~50 MB (chỉ dựng khi
   máy có `ISCC.exe`; không có thì bước này được bỏ qua kèm lời nhắc). Cài Inno
   Setup bằng `winget install --id JRSoftware.InnoSetup -e`; bản winget không cần
   quyền admin nên nó nằm ở `%LOCALAPPDATA%\Programs\Inno Setup 6` — `build.py`
@@ -347,20 +347,20 @@ Vài chỗ cố ý:
   chậm vài giây và gần như chắc chắn bị antivirus soi. Cũng vì lý do đó mà không
   bật UPX.
 - **Tên ba exe phải khác nhau nhiều hơn một chữ hoa.** Tên tệp trên Windows không
-  phân biệt hoa thường, nên `idmclone.exe` sẽ **ghi đè** `IDMClone.exe` ngay
+  phân biệt hoa thường, nên `boltdown.exe` sẽ **ghi đè** `Boltdown.exe` ngay
   trong thư mục dist — bản build đầu tiên dính đúng lỗi này, giờ có test canh.
 - **Host là exe console riêng.** Native messaging chạy trên stdio mà bản windowed
   thì không có stdio; tách ra còn giúp tiến trình Chrome sinh ra không phải nạp Qt.
 - Bỏ `opengl32sw.dll` (19,7 MB, chỉ QtQuick/QOpenGLWidget dùng) và toàn bộ
   `PySide6/translations` (6,5 MB, chuỗi của app nằm ở `app/ui/i18n.py`, hộp thoại
   tệp là hộp thoại của Windows) — nhẹ đi ~26 MB.
-- Icon `packaging/idmclone.ico` được sinh từ chính hàm vẽ Qt của app
+- Icon `packaging/boltdown.ico` được sinh từ chính hàm vẽ Qt của app
   (`scripts/make_app_icon.py`) nên repo không phải giữ ảnh nhị phân thủ công.
 
 Bản cài đặt là **per-user** (`PrivilegesRequired=lowest`): không cần UAC, cài vào
-`%LOCALAPPDATA%\Programs\IDMClone`, và mọi thứ nó ghi đều nằm trong `HKCU` —
+`%LOCALAPPDATA%\Programs\Boltdown`, và mọi thứ nó ghi đều nằm trong `HKCU` —
 shortcut, tuỳ chọn chạy cùng Windows (`--tray`), còn khi gỡ thì gọi
-`idmclone-cli.exe --unregister-host` để dọn đăng ký native messaging. Chạy ở chế
+`boltdown-cli.exe --unregister-host` để dọn đăng ký native messaging. Chạy ở chế
 độ admin thì `HKCU` lại là hive của admin chứ không phải người dùng thật, nên bản
 này không mở đường cài "cho mọi người". Nó cũng **không** tự đăng ký host lúc
 cài, vì manifest phải nêu đích danh ID của extension mà ID của bản unpacked thì
@@ -386,8 +386,8 @@ bộ và cho việc kiểm tra bản cập nhật. Trạng thái báo về sẽ 
 (chuỗi tin cậy không dẫn tới CA nào Windows biết), và đó là điều bình thường:
 
 ```
-IDMClone.exe             UnknownError   CN=IDMClone Test Signing (self-signed) (timestamped)
-IDMCloneSetup-0.3.0.exe  UnknownError   CN=IDMClone Test Signing (self-signed) (timestamped)
+Boltdown.exe             UnknownError   CN=Boltdown Test Signing (self-signed) (timestamped)
+BoltdownSetup-0.3.0.exe  UnknownError   CN=Boltdown Test Signing (self-signed) (timestamped)
 ```
 
 Muốn hết cảnh báo "nhà phát hành không xác định" thì phải mua chứng chỉ ký mã của
@@ -411,7 +411,7 @@ Hai chỗ cần biết:
 
 **Tuỳ chọn → Cài đặt chung → Chạy cùng Windows** ghi khoá `HKCU\...\Run` trỏ tới
 app kèm cờ `--tray` (mở thẳng xuống khay, không bung cửa sổ vào mặt người dùng
-lúc đăng nhập). Chạy từ mã nguồn thì khoá trỏ vào `idmclone-gui.exe` trong
+lúc đăng nhập). Chạy từ mã nguồn thì khoá trỏ vào `boltdown-gui.exe` trong
 `.venv\Scripts` — `python -m app` không dùng được vì Run khởi động tiến trình ở
 `system32`, chỗ đó không import được package.
 
@@ -428,7 +428,7 @@ app/
     segment.py        SegmentWorker: stream 1 range, retry có backoff
     probe.py          dò size / hỗ trợ Range / ETag / tên file
     writer.py         ghi theo offset, mỗi segment 1 fd riêng
-    resume.py         sidecar .idmdown (ghi atomic)
+    resume.py         sidecar .boltdown (ghi atomic)
     ratelimit.py      token bucket (toàn cục + theo task)
   media/
     detect.py         URL này là file thường, playlist hay trang video?
@@ -461,8 +461,8 @@ app/
                       patterns.py (mẫu [001-100]), filenames.py, fmt.py, paths.py
 extension/            MV3: background.js (bắt download + sniff media),
                       content.js (nút nổi), popup/
-packaging/            idmclone.spec (3 exe), installer.iss (Inno Setup),
-                      entry_*.py (điểm vào cho bản frozen), idmclone.ico
+packaging/            boltdown.spec (3 exe), installer.iss (Inno Setup),
+                      entry_*.py (điểm vào cho bản frozen), boltdown.ico
 scripts/              build.py, sign.py, verify_p1.py, verify_p5.py, verify_p6.py,
                       make_app_icon.py, make_extension_icons.py, make_screenshots.py
 ```
@@ -472,7 +472,7 @@ Tám điểm thiết kế đáng chú ý:
 - **Dynamic segmentation** — segment nào xong trước sẽ cắt đôi phần *chưa tải* của
   segment chậm nhất và tải tiếp phần đó (`TaskRunner._steal_work`). Không có cơ chế
   này thì một kết nối chậm sẽ kéo lùi cả file.
-- **Ghi trước, ghi sổ sau** — `segment.done` (và file `.idmdown`) chỉ tăng *sau khi*
+- **Ghi trước, ghi sổ sau** — `segment.done` (và file `.boltdown`) chỉ tăng *sau khi*
   dữ liệu đã nằm trên đĩa, nên metadata không bao giờ khai nhiều hơn thực tế. Mất
   điện chỉ khiến tải lại vài trăm KB, không bao giờ hỏng file.
 - **Tên tệp được chốt trước khi ghi byte đầu tiên** — `TaskRunner._claim_target`
@@ -581,12 +581,12 @@ Nghiệm thu trên bản đóng gói **0.2.0** (2026-08-13):
 ```
 [PASS] layout    3 executables, 104 MB
 [PASS] cli       downloaded 3072 KB in 1.4s
-[PASS] host      ping answered in 2.0s: {'ok': True, 'app': 'IDMClone', 'version': '0.2.0'}
+[PASS] host      ping answered in 2.0s: {'ok': True, 'app': 'Boltdown', 'version': '0.2.0'}
 [PASS] handover  from-browser.bin landed in the download folder
 ```
 
 Trong đó `handover` là chuỗi đầy đủ giống hệt lúc dùng thật: tin nhắn native
-messaging → `idmclone-host.exe` → khởi động `IDMClone.exe` (3,6 giây từ lúc máy
+messaging → `boltdown-host.exe` → khởi động `Boltdown.exe` (3,6 giây từ lúc máy
 chưa chạy app) → engine tải xong file.
 
 Trình cài đặt chạy thử một vòng đầy đủ mỗi lần dựng: cài im lặng
@@ -597,7 +597,7 @@ không chọn. Bản 0.2.0 còn được mở thử **một lần cho mỗi them
 chế độ "theo Windows" đều khởi động và trả lời IPC bình thường. Gỡ im lặng xong
 thì thư mục, shortcut và mục gỡ cài đặt đều biến mất, không sót gì.
 
-SHA-256 của `IDMCloneSetup-0.3.0.exe`:
+SHA-256 của `BoltdownSetup-0.3.0.exe`:
 
 ```
 f9c901b131051b8120d9c323af2cac7945d1e38cd99646e50c3d8e2f59eaddb2

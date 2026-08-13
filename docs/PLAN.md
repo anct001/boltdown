@@ -1,4 +1,4 @@
-# IDMClone — Phân tích & Kế hoạch triển khai
+# Boltdown — Phân tích & Kế hoạch triển khai
 
 > Trạng thái: **P0 → P6 đã hoàn thành** (2026-08-12), thêm **P7** (2026-08-13):
 > nâng cấp giao diện và bốn tính năng người dùng yêu cầu. Xem
@@ -13,9 +13,9 @@ Mục tiêu chất lượng:
 - **An toàn dữ liệu**: mất điện / kill process không làm hỏng file đang tải — luôn resume được.
 - **Trải nghiệm**: người dùng bấm link trong Chrome/Edge → app tự bắt và tải, giống hệt IDM.
 
-Ràng buộc kỹ thuật đã xác nhận trên máy: Python 3.13.14, Node 22.20, Rust 1.96 (không có .NET/Go). Thư mục `E:\idmclone` hiện trống — dự án greenfield.
+Ràng buộc kỹ thuật đã xác nhận trên máy: Python 3.13.14, Node 22.20, Rust 1.96 (không có .NET/Go). Thư mục `E:\boltdown` hiện trống — dự án greenfield.
 
-**Lưu ý pháp lý**: chỉ clone *tính năng*. Không sao chép mã nguồn, icon, tên thương hiệu hay giao thức riêng của IDM. Tên sản phẩm nội bộ dùng "IDMClone" (đổi tên trước khi phát hành).
+**Lưu ý pháp lý**: chỉ clone *tính năng*. Không sao chép mã nguồn, icon, tên thương hiệu hay giao thức riêng của IDM. Tên sản phẩm nội bộ dùng "Boltdown" (đổi tên trước khi phát hành).
 
 ## 2. Phân rã tính năng IDM → hạng mục kỹ thuật
 
@@ -23,7 +23,7 @@ Ràng buộc kỹ thuật đã xác nhận trên máy: Python 3.13.14, Node 22.2
 |---|---|
 | Tải nhanh đa luồng | Chia file thành N đoạn qua HTTP `Range`, tải song song, ghi vào cùng 1 file theo offset |
 | Dynamic segmentation | Đoạn nào xong trước thì "cắt" phần còn lại của đoạn chậm nhất → không bị 1 luồng rùa kéo lùi |
-| Resume | Sidecar metadata `.idmdown` ghi tiến độ từng đoạn + `ETag`/`Last-Modified` để xác thực file trên server không đổi |
+| Resume | Sidecar metadata `.boltdown` ghi tiến độ từng đoạn + `ETag`/`Last-Modified` để xác thực file trên server không đổi |
 | Bắt link trình duyệt | Extension MV3 (Chrome/Edge) + Native Messaging host, chặn download rồi chuyển URL + cookie + header sang app |
 | Download this video | Extension sniff request `.m3u8`/`.mpd`/`video/*` → hiện nút nổi trên trang |
 | Tải YouTube/HLS/DASH | Nhúng `yt-dlp` (dạng thư viện) + `ffmpeg` để merge audio/video |
@@ -53,7 +53,7 @@ Ràng buộc kỹ thuật đã xác nhận trên máy: Python 3.13.14, Node 22.2
 ┌───────────────▼──────────────────────────────────────────┐
 │  Engine (1 thread nền chạy asyncio event loop)           │
 │   Scheduler → TaskRunner → SegmentWorker(httpx)          │
-│   RateLimiter · Writer(pwrite) · ResumeStore(.idmdown)   │
+│   RateLimiter · Writer(pwrite) · ResumeStore(.boltdown)   │
 └───────────────┬──────────────────────────────────────────┘
                 │
         SQLite (state bền vững)  +  yt-dlp / ffmpeg (subprocess)
@@ -75,7 +75,7 @@ Ràng buộc kỹ thuật đã xác nhận trên máy: Python 3.13.14, Node 22.2
 ## 5. Cấu trúc thư mục dự kiến
 
 ```
-E:\idmclone\
+E:\boltdown\
 ├─ app\
 │  ├─ main.py                  # entrypoint, single-instance, parse argv
 │  ├─ core\
@@ -86,7 +86,7 @@ E:\idmclone\
 │  │  ├─ probe.py              # HEAD/Range probe: size, accept-ranges, tên file
 │  │  ├─ http_client.py        # client dùng chung: proxy, UA, referer, auth, cookie
 │  │  ├─ writer.py             # cấp phát file trước + ghi theo offset
-│  │  ├─ resume.py             # đọc/ghi .idmdown, xác thực ETag
+│  │  ├─ resume.py             # đọc/ghi .boltdown, xác thực ETag
 │  │  ├─ ratelimit.py          # token bucket
 │  │  └─ categories.py         # map đuôi file → thư mục đích
 │  ├─ media\  (detect.py, m3u8.py, hls.py, ytdlp.py, ffmpeg.py, runner.py)
@@ -98,7 +98,7 @@ E:\idmclone\
 │  └─ util\ (fmt.py, paths.py, log.py)
 ├─ extension\ (manifest.json, background.js, content.js, popup\)
 ├─ tests\
-├─ packaging\ (idmclone.spec, installer.iss, native_host_manifest.json)
+├─ packaging\ (boltdown.spec, installer.iss, native_host_manifest.json)
 └─ docs\PLAN.md
 ```
 
@@ -122,14 +122,14 @@ Khi một segment hoàn thành, thay vì để luồng đó chết:
 3. Việc cắt phải thực hiện dưới `asyncio.Lock` và kiểm tra lại `downloaded` ngay tại thời điểm cắt để tránh race.
 
 ### 6.4 Resume
-- Sidecar `<tên file>.idmdown` (JSON) cạnh file đích, ghi atomic (write tmp → `os.replace`), flush mỗi 1s hoặc mỗi 4 MB.
+- Sidecar `<tên file>.boltdown` (JSON) cạnh file đích, ghi atomic (write tmp → `os.replace`), flush mỗi 1s hoặc mỗi 4 MB.
 ```json
 { "v":1, "url":"...", "final_url":"...", "size":734003200,
   "etag":"\"a1b2\"", "last_modified":"...", "accept_ranges":true,
   "segments":[{"start":0,"end":91750399,"done":91750399}, ...] }
 ```
 - Khi resume: probe lại; nếu `ETag`/`Last-Modified`/`size` khác → hỏi người dùng "tải lại từ đầu?".
-- Xong 100% → xoá `.idmdown`, đổi tên `.part` → tên thật, di chuyển vào thư mục danh mục.
+- Xong 100% → xoá `.boltdown`, đổi tên `.part` → tên thật, di chuyển vào thư mục danh mục.
 
 ### 6.5 Lỗi & retry
 - Backoff luỹ thừa có jitter: 1s → 2s → 4s → 8s (tối đa 5 lần / segment).
@@ -141,14 +141,14 @@ Token bucket toàn cục dùng chung, các segment `await bucket.acquire(n)` tr�
 
 ## 7. Lưu trữ trạng thái
 
-SQLite (`%LOCALAPPDATA%\IDMClone\idmclone.db`, WAL):
+SQLite (`%LOCALAPPDATA%\Boltdown\boltdown.db`, WAL):
 - `downloads` — id, url, final_url, filename, save_path, size, downloaded, state, category, queue_id, speed_limit, added_at, finished_at, error
 - `download_headers` — cookie/referer/UA/auth theo từng task
 - `queues`, `schedules` — hàng đợi và lịch chạy
 - `settings` — key/value
 - `history` — log kết quả
 
-Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thường xuyên) mà nằm ở file `.idmdown`; DB chỉ giữ tổng số byte, đồng bộ mỗi 2s.
+Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thường xuyên) mà nằm ở file `.boltdown`; DB chỉ giữ tổng số byte, đồng bộ mỗi 2s.
 
 ## 8. Giao diện (PySide6)
 
@@ -165,7 +165,7 @@ Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thư�
 - `chrome.webRequest.onBeforeRequest` lọc `.m3u8/.mpd/.mp4` → lưu vào danh sách media của tab → content script hiện nút nổi "Tải video này".
 - Popup: bật/tắt bắt link, danh sách đuôi file loại trừ.
 
-**Native host** (`app/ipc/native_host.py`): đọc stdio theo chuẩn native messaging (4 byte little-endian length + JSON UTF-8), forward sang instance app qua `QLocalSocket`; nếu app chưa chạy thì khởi động nó. Installer ghi registry `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.idmclone.host` (và nhánh Edge tương ứng).
+**Native host** (`app/ipc/native_host.py`): đọc stdio theo chuẩn native messaging (4 byte little-endian length + JSON UTF-8), forward sang instance app qua `QLocalSocket`; nếu app chưa chạy thì khởi động nó. Installer ghi registry `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.boltdown.host` (và nhánh Edge tương ứng).
 
 ## 10. Video streaming
 
@@ -180,7 +180,7 @@ Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thư�
   token bucket và GUI không biết gì về playlist.
 - Resume của HLS **không** dùng sidecar: mỗi segment ghi ra `NNNNNN.part` rồi
   `os.replace` sang `NNNNNN.bin`. Có tên chính thức nghĩa là đủ byte, nên chỉ cần
-  liệt kê thư mục là biết còn thiếu segment nào. Sidecar `.idmdown` chỉ dùng cho
+  liệt kê thư mục là biết còn thiếu segment nào. Sidecar `.boltdown` chỉ dùng cho
   các track tải bằng `TaskRunner` (video/audio direct URL).
 - Ghép file làm bằng **nối byte** (`stream.raw`) rồi mới remux, thay vì concat
   demuxer của ffmpeg: đúng cho cả MPEG-TS lẫn fMP4 có `#EXT-X-MAP`, và vẫn ra file
@@ -227,20 +227,20 @@ Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thư�
 **Đã làm — vài chỗ khác thiết kế ban đầu:**
 
 - Bản đóng gói có **ba** exe dùng chung một `COLLECT` chứ không phải một:
-  `IDMClone.exe` (windowed), `idmclone-cli.exe` (console) và `idmclone-host.exe`
+  `Boltdown.exe` (windowed), `boltdown-cli.exe` (console) và `boltdown-host.exe`
   (console, cho native messaging). Bản windowed không có stdio nên tự nó không
   thể làm host được.
-- Tên `idmclone.exe` cho bản CLI **không dùng được**: tên tệp Windows không phân
-  biệt hoa thường nên nó ghi đè `IDMClone.exe` ngay trong thư mục dist. Bản build
+- Tên `boltdown.exe` cho bản CLI **không dùng được**: tên tệp Windows không phân
+  biệt hoa thường nên nó ghi đè `Boltdown.exe` ngay trong thư mục dist. Bản build
   đầu tiên đã dính lỗi này; giờ có test đọc thẳng file spec để canh.
-- `native_host.launch_app()` phải trỏ đích danh `IDMClone.exe`: khi frozen,
+- `native_host.launch_app()` phải trỏ đích danh `Boltdown.exe`: khi frozen,
   `sys.executable` chính là host, nên bản cũ tự sinh ra host mới thay vì mở app.
 - Đăng ký native messaging **không** nằm trong trình cài đặt (ID của extension
-  unpacked mỗi máy một khác) mà nằm ở `idmclone-cli.exe --register-host <id>` và
+  unpacked mỗi máy một khác) mà nằm ở `boltdown-cli.exe --register-host <id>` và
   ở **Tuỳ chọn → Tích hợp trình duyệt**. Khi frozen, manifest trỏ thẳng vào
-  `idmclone-host.exe`, không cần file `.bat` lẫn Python.
+  `boltdown-host.exe`, không cần file `.bat` lẫn Python.
 - Auto-start dùng khoá `HKCU\...\Run` kèm cờ `--tray`. Chạy từ mã nguồn thì trỏ
-  vào `idmclone-gui.exe` của venv, vì Run khởi động tiến trình ở `system32` nên
+  vào `boltdown-gui.exe` của venv, vì Run khởi động tiến trình ở `system32` nên
   `python -m app` không import được package.
 - Cắt `opengl32sw.dll` và `PySide6/translations` khỏi payload (~26 MB) — app chỉ
   dùng QtWidgets với raster engine và có bảng chuỗi riêng.

@@ -54,7 +54,7 @@ def test_segment_geometry():
 
 
 def test_meta_roundtrip(tmp_path):
-    path = tmp_path / "f.part.idmdown"
+    path = tmp_path / "f.part.boltdown"
     meta = _meta()
     meta.segments[0].done = 123
     meta.save(path)
@@ -62,17 +62,17 @@ def test_meta_roundtrip(tmp_path):
     assert loaded is not None
     assert loaded.downloaded == 123
     assert [s.to_dict() for s in loaded.segments] == [s.to_dict() for s in meta.segments]
-    assert not (tmp_path / "f.part.idmdown.tmp").exists()
+    assert not (tmp_path / "f.part.boltdown.tmp").exists()
 
 
 def test_meta_load_ignores_corrupt_file(tmp_path):
-    path = tmp_path / "bad.idmdown"
+    path = tmp_path / "bad.boltdown"
     path.write_text("{not json")
     assert ResumeMeta.load(path) is None
 
 
 def test_meta_load_missing_file(tmp_path):
-    assert ResumeMeta.load(tmp_path / "nope.idmdown") is None
+    assert ResumeMeta.load(tmp_path / "nope.boltdown") is None
 
 
 def test_mismatch_detects_size_change():

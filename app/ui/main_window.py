@@ -66,7 +66,7 @@ FILTER_ROLE = Qt.ItemDataRole.UserRole + 10
 POST_ACTION_DELAY = 30
 
 _ACTION_LABELS = {
-    "exit": "Downloads finished - closing IDMClone",
+    "exit": "Downloads finished - closing Boltdown",
     "shutdown": "Downloads finished - shutting the computer down",
     "hibernate": "Downloads finished - hibernating",
     "sleep": "Downloads finished - going to sleep",
@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
         #: ids already handled, so one finished download is announced once
         self._finished: set[int] = set()
 
-        self.setWindowTitle("IDMClone")
+        self.setWindowTitle("Boltdown")
         self.setWindowIcon(icons.app_icon())
         self.resize(1040, 620)
         self.setAcceptDrops(True)
@@ -543,7 +543,7 @@ class MainWindow(QMainWindow):
             self._notify(tr("Downloading video") if media else tr("Add URL"), url)
 
     def remote_snapshot(self) -> list[dict]:
-        """What `idmclone-cli --remote-list` prints."""
+        """What `boltdown-cli --remote-list` prints."""
         return [
             {
                 "id": item.db_id,
@@ -826,7 +826,7 @@ class MainWindow(QMainWindow):
     def _about(self) -> None:
         QMessageBox.about(
             self, tr("About"),
-            "IDMClone 0.1\n\n"
+            "Boltdown 0.1\n\n"
             f"{tr('Downloads')}: multi-segment HTTP engine with resume.\n"
             "Python + PySide6.",
         )

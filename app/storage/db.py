@@ -2,7 +2,7 @@
 
 Only coarse state lives here (one row per download, synced every couple of
 seconds). Per-segment offsets change far too often for a database and live in
-the `.idmdown` sidecar instead - see `app/core/resume.py`.
+the `.boltdown` sidecar instead - see `app/core/resume.py`.
 """
 
 from __future__ import annotations

@@ -1,31 +1,31 @@
-; Inno Setup script for IDMClone.
+; Inno Setup script for Boltdown.
 ;
-;   ISCC.exe /DMyAppVersion=0.3.0 packaging\installer.iss
+;   ISCC.exe /DMyAppVersion=0.4.0 packaging\installer.iss
 ;
-; Input is dist\IDMClone\ as produced by packaging\idmclone.spec; output is
-; dist\IDMCloneSetup-<version>.exe.
+; Input is dist\Boltdown\ as produced by packaging\boltdown.spec; output is
+; dist\BoltdownSetup-<version>.exe.
 ;
 ; Two things it deliberately does *not* do:
 ;   * register the native messaging host - the manifest has to name the
 ;     extension's ID, and an unpacked extension gets a different ID on every
 ;     machine. The app registers it from Options -> Browser integration
-;     (or `idmclone.exe --register-host <id>`), which writes to HKCU and needs
+;     (or `boltdown.exe --register-host <id>`), which writes to HKCU and needs
 ;     no elevation.
 ;   * install per-machine services or drivers. A download manager needs
 ;     neither, and staying inside HKCU keeps uninstall clean.
 
-#define MyAppName "IDMClone"
+#define MyAppName "Boltdown"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.0"
+  #define MyAppVersion "0.4.0"
 #endif
-#define MyAppPublisher "IDMClone"
-#define MyAppExeName "IDMClone.exe"
-#define MyCliExeName "idmclone-cli.exe"
-#define MyHostExeName "idmclone-host.exe"
-#define SourceDir "..\dist\IDMClone"
+#define MyAppPublisher "Boltdown"
+#define MyAppExeName "Boltdown.exe"
+#define MyCliExeName "boltdown-cli.exe"
+#define MyHostExeName "boltdown-host.exe"
+#define SourceDir "..\dist\Boltdown"
 
 [Setup]
-AppId={{7B0F1E4C-2B0B-4E4E-9E2E-1D9A2F7C51A4}
+AppId={{2F9C0A6E-5D3B-4C71-9E10-6A4B8D2F71C3}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -34,8 +34,8 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
 OutputDir=..\dist
-OutputBaseFilename=IDMCloneSetup-{#MyAppVersion}
-SetupIconFile=idmclone.ico
+OutputBaseFilename=BoltdownSetup-{#MyAppVersion}
+SetupIconFile=boltdown.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -53,7 +53,7 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "autostart"; Description: "Start IDMClone with Windows (minimised to the tray)"; GroupDescription: "Startup:"; Flags: unchecked
+Name: "autostart"; Description: "Start Boltdown with Windows (minimised to the tray)"; GroupDescription: "Startup:"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -67,7 +67,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Registry]
 ; Autostart lives in HKCU so it survives a per-user install and uninstalls cleanly.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
-    ValueType: string; ValueName: "IDMClone"; \
+    ValueType: string; ValueName: "Boltdown"; \
     ValueData: """{app}\{#MyAppExeName}"" --tray"; \
     Flags: uninsdeletevalue; Tasks: autostart
 

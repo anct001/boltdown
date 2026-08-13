@@ -48,7 +48,7 @@ from .hls import HlsDownloader
 log = get_logger(__name__)
 
 PROGRESS_INTERVAL = 0.25
-WORK_SUFFIX = ".idmedia"
+WORK_SUFFIX = ".boltmedia"
 
 
 class MediaTaskRunner:

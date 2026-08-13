@@ -4,10 +4,10 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-packaging/idmclone.ico
+packaging/boltdown.ico
 .pytest_cache/
 *.part
-*.idmdown
+*.boltdown
 *.db
 *.db-wal
 *.db-shm

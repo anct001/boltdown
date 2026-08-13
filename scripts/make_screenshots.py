@@ -36,10 +36,10 @@ def main(argv: list[str] | None = None) -> int:
 
     work = Path(args.work_dir) if args.work_dir else Path(
         os.environ.get("TEMP", ".")
-    ) / "idmclone-shots"
+    ) / "boltdown-shots"
     downloads = work / "downloads"
     downloads.mkdir(parents=True, exist_ok=True)
-    os.environ["IDMCLONE_HOME"] = str(work / "home")
+    os.environ["BOLTDOWN_HOME"] = str(work / "home")
 
     from PySide6.QtWidgets import QApplication, QTabWidget
 

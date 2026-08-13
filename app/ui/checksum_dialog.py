@@ -197,3 +197,9 @@ class ChecksumDialog(QDialog):
     def closeEvent(self, event) -> None:
         self._stop.set()
         super().closeEvent(event)
+
+    def done(self, result: int) -> None:
+        # Cancel and Esc close the dialog without a close event, and hashing a
+        # 10 GB file would otherwise keep the disk busy for nothing.
+        self._stop.set()
+        super().done(result)
