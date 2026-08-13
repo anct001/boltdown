@@ -11,9 +11,25 @@ proxy SOCKS5, nhập cookie, thống kê, điều khiển từ dòng lệnh. L�
 
 ![Cửa sổ chính](docs/screenshots/main-window.png)
 
+## Đổi tên từ IDMClone (0.4.0)
+
+Phần mềm trước đây tên **IDMClone**, từ 0.4.0 đổi thành **Boltdown**. Người
+đang dùng bản cũ không phải cài lại từ đầu:
+
+- Thư mục hồ sơ `%LOCALAPPDATA%\IDMClone` được đổi tên thành `Boltdown` ngay
+  lần chạy đầu, kèm theo `idmclone.db` → `boltdown.db` (cả `-wal`/`-shm`, nếu
+  bỏ lại thì mất những gì vừa ghi mà chưa checkpoint). Danh sách tải, hàng đợi,
+  cài đặt, lịch sử giữ nguyên.
+- Biến môi trường cũ `IDMCLONE_HOME` vẫn được chấp nhận, bên cạnh
+  `BOLTDOWN_HOME`.
+- File tải dở của bản cũ (`*.part` + sidecar `.idmdown`) vẫn tải tiếp được,
+  không phải tải lại từ 0.
+- Bản cài đặt dùng `AppId` mới, nên **IDMClone cũ không tự bị thay thế** — gỡ
+  nó thủ công nếu không muốn giữ hai mục trong Apps & features.
+
 ## Cài đặt
 
-Người dùng cuối: chạy `BoltdownSetup-0.3.0.exe` (xem mục [Đóng gói](#đóng-gói)
+Người dùng cuối: chạy `BoltdownSetup-0.4.0.exe` (xem mục [Đóng gói](#đóng-gói)
 để tự dựng). Bản cài đặt đã kèm sẵn Python và Qt nên máy sạch không cần cài gì
 thêm.
 
@@ -335,7 +351,7 @@ Ra hai thứ trong `dist/`:
 | `boltdown-cli.exe` | console | dòng lệnh + `--register-host` trên máy không có Python |
 | `boltdown-host.exe` | console | native messaging cho Chrome/Edge |
 
-- `dist/BoltdownSetup-0.3.0.exe` — bản cài đặt Inno Setup, ~50 MB (chỉ dựng khi
+- `dist/BoltdownSetup-0.4.0.exe` — bản cài đặt Inno Setup, ~50 MB (chỉ dựng khi
   máy có `ISCC.exe`; không có thì bước này được bỏ qua kèm lời nhắc). Cài Inno
   Setup bằng `winget install --id JRSoftware.InnoSetup -e`; bản winget không cần
   quyền admin nên nó nằm ở `%LOCALAPPDATA%\Programs\Inno Setup 6` — `build.py`
@@ -387,7 +403,7 @@ bộ và cho việc kiểm tra bản cập nhật. Trạng thái báo về sẽ 
 
 ```
 Boltdown.exe             UnknownError   CN=Boltdown Test Signing (self-signed) (timestamped)
-BoltdownSetup-0.3.0.exe  UnknownError   CN=Boltdown Test Signing (self-signed) (timestamped)
+BoltdownSetup-0.4.0.exe  UnknownError   CN=Boltdown Test Signing (self-signed) (timestamped)
 ```
 
 Muốn hết cảnh báo "nhà phát hành không xác định" thì phải mua chứng chỉ ký mã của
@@ -597,8 +613,8 @@ không chọn. Bản 0.2.0 còn được mở thử **một lần cho mỗi them
 chế độ "theo Windows" đều khởi động và trả lời IPC bình thường. Gỡ im lặng xong
 thì thư mục, shortcut và mục gỡ cài đặt đều biến mất, không sót gì.
 
-SHA-256 của `BoltdownSetup-0.3.0.exe`:
+SHA-256 của `BoltdownSetup-0.4.0.exe`:
 
 ```
-f9c901b131051b8120d9c323af2cac7945d1e38cd99646e50c3d8e2f59eaddb2
+67f309db7b33484a1686deba38d3d0a5e7da02b4a012812bd46c384d01fc3cdc
 ```

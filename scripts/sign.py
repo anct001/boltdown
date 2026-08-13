@@ -83,10 +83,18 @@ def make_cert(subject: str = TEST_SUBJECT, years: int = 3) -> str | None:
 
 def find_cert(thumbprint: str | None = None) -> dict | None:
     """Pick the signing certificate: the given thumbprint, or the only one."""
+    # Without a thumbprint, prefer a certificate that names this product: the
+    # store may still hold the one made under the application's old name, and
+    # signing with it puts the wrong publisher in the Windows prompt.
     query = (
         f"Get-Item Cert:\\CurrentUser\\My\\{thumbprint}"
         if thumbprint
-        else "Get-ChildItem Cert:\\CurrentUser\\My -CodeSigningCert"
+        else (
+            "Get-ChildItem Cert:\\CurrentUser\\My -CodeSigningCert "
+            "| Sort-Object "
+            "@{Expression={$_.Subject -notlike '*Boltdown*'};Descending=$false}, "
+            "@{Expression='NotAfter';Descending=$true}"
+        )
     )
     code, out, _err = powershell(
         f"{query} | Select-Object -First 1 "

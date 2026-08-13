@@ -11,6 +11,8 @@ APP_NAME = "Boltdown"
 #: adopted rather than abandoned
 LEGACY_NAME = "IDMClone"
 LEGACY_ENV = "IDMCLONE_HOME"
+LEGACY_DB = "idmclone.db"
+LEGACY_LOG = "idmclone.log"
 
 
 def portable_marker() -> Path:
@@ -66,11 +68,35 @@ def _legacy_dir(new_path: Path) -> Path | None:
 
 
 def db_path() -> Path:
-    return data_dir() / "boltdown.db"
+    return _adopt(data_dir() / "boltdown.db", LEGACY_DB)
 
 
 def log_path() -> Path:
-    return data_dir() / "boltdown.log"
+    return _adopt(data_dir() / "boltdown.log", LEGACY_LOG)
+
+
+def _adopt(path: Path, legacy_name: str) -> Path:
+    """Rename a file left by the previous name of the application.
+
+    Moving the directory is not enough: the database inside it is named after
+    the application too, and a fresh empty `boltdown.db` beside the old file
+    would look exactly like losing every download in the list.
+
+    SQLite's write-ahead log is named after the database, so `-wal` and `-shm`
+    have to travel with it - leaving them behind would discard whatever was
+    committed but not yet checkpointed.
+    """
+    legacy = path.with_name(legacy_name)
+    if path.exists() or not legacy.exists():
+        return path
+    for suffix in ("", "-wal", "-shm"):
+        source = legacy.with_name(legacy.name + suffix)
+        if source.exists():
+            try:
+                source.rename(path.with_name(path.name + suffix))
+            except OSError:
+                return legacy if not suffix else path
+    return path
 
 
 def default_download_dir() -> Path:

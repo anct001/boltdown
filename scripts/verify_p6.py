@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -138,6 +139,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     work = Path(args.work_dir) if args.work_dir else dist.parent / "verify-p6"
+    # Start from nothing every time. Left-over files from an earlier run make
+    # the application do the right thing - save as `packaged (1).bin` - and
+    # the harness then reports a failure that is entirely its own fault.
+    shutil.rmtree(work, ignore_errors=True)
     downloads = work / "downloads"
     downloads.mkdir(parents=True, exist_ok=True)
     # Keep the packaged app out of the real profile, and let it download
