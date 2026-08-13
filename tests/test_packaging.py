@@ -297,7 +297,11 @@ def test_nothing_still_answers_to_the_old_name():
     for path in PROJECT_ROOT.rglob("*"):
         if not path.is_file() or any(part in skip for part in path.parts):
             continue
-        if path.suffix not in {".py", ".js", ".json", ".toml", ".iss", ".spec", ".md"}:
+        # Code and configuration only. Prose has every right to say what the
+        # application used to be called - the README explains the migration -
+        # whereas a file name or a registry key left behind sends the program
+        # looking in the wrong place.
+        if path.suffix not in {".py", ".js", ".json", ".toml", ".iss", ".spec"}:
             continue
         if path.resolve() == here:
             continue  # this file has to spell the old name to search for it
