@@ -18,6 +18,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from .server import FileServer  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _no_audible_tests(monkeypatch):
+    """A test run must not make noise on the machine running it.
+
+    The player is replaced, not the setting: the code that decides *whether*
+    to play still runs, so the tests still exercise it - they just never reach
+    the speaker. A test that wants to observe playback passes its own player.
+    """
+    monkeypatch.setattr("app.ui.sounds._winsound_player", lambda path: None)
+
+
 @pytest.fixture(scope="session")
 def server():
     srv = FileServer().start()

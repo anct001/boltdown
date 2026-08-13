@@ -38,6 +38,7 @@ from ..util.fmt import human_speed
 from . import icons, theme
 from .add_url_dialog import AddUrlDialog
 from .batch_dialog import BatchDialog
+from . import sounds as sound_effects
 from .browser_dialog import BrowserDialog
 from .checksum_dialog import ChecksumDialog
 from .clipboard_watch import ClipboardWatcher
@@ -87,6 +88,10 @@ class MainWindow(QMainWindow):
         self._progress_dialogs: dict[int, ProgressDialog] = {}
         #: ids already handled, so one finished download is announced once
         self._finished: set[int] = set()
+        #: same, for the failure sound - a retrying download must not buzz
+        #: once per attempt
+        self._failed: set[int] = set()
+        self.sounds = sound_effects.SoundBoard(settings)
 
         self.setWindowTitle("Boltdown")
         self.setWindowIcon(icons.app_icon())
@@ -121,6 +126,8 @@ class MainWindow(QMainWindow):
 
         self._postDone.connect(self._notify, Qt.QueuedConnection)
         controller.itemChanged.connect(self._on_item_changed)
+        controller.itemAdded.connect(lambda _item: self.sounds.play("added"))
+        controller.queueFinished.connect(self._on_queue_finished)
         controller.queuesChanged.connect(self._rebuild_queue_nodes)
         self._update_action_states()
 
@@ -662,7 +669,15 @@ class MainWindow(QMainWindow):
         self._update_action_states()
         if item.state is TaskState.COMPLETED and item.db_id not in self._finished:
             self._finished.add(item.db_id)
+            self.sounds.play("completed")
             self._on_download_finished(item)
+        elif item.state is TaskState.ERROR and item.db_id not in self._failed:
+            # Once per download, not once per retry.
+            self._failed.add(item.db_id)
+            self.sounds.play("error")
+
+    def _on_queue_finished(self, queue_id: int) -> None:
+        self.sounds.play("queue_done")
 
     def _on_download_finished(self, item: DownloadItem) -> None:
         """Notify, then run whatever post-processing is switched on."""

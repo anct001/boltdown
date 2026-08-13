@@ -57,6 +57,9 @@ class SpeedGraph(QWidget):
         self.update()
 
     def paintEvent(self, event) -> None:
+        if theme.current().pixel:
+            self._paint_pixel()
+            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
@@ -100,6 +103,52 @@ class SpeedGraph(QWidget):
         )
 
 
+    #: pixel mode: one bar every CELL px, quantised to STEPS heights
+    CELL = 6
+    STEPS = 10
+
+    def _paint_pixel(self) -> None:
+        """The same data as a spectrum-analyser bar chart.
+
+        Quantising the height is the point: a smooth curve is exactly what a
+        machine with a 4-colour tile grid could not draw, and the steps are
+        what make it read as a game.
+        """
+        palette = theme.current()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        rect = self.rect()
+        painter.fillRect(rect, palette.color("track"))
+        painter.setPen(QPen(palette.color("border"), 2))
+        painter.drawRect(rect.adjusted(1, 1, -1, -1))
+
+        if not self._samples:
+            return
+        peak = max(self._samples) or 1.0
+        inner = rect.adjusted(3, 3, -3, -3)
+        columns = max(1, inner.width() // self.CELL)
+        recent = list(self._samples)[-columns:]
+        row_height = max(1, inner.height() // self.STEPS)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for index, value in enumerate(recent):
+            filled = int(round(value / (peak * 1.05) * self.STEPS))
+            x = inner.left() + (columns - len(recent) + index) * self.CELL
+            for row in range(filled):
+                # Green at the bottom, amber at the top: a level meter.
+                token = "success" if row < self.STEPS * 0.7 else "accent"
+                painter.setBrush(palette.color(token))
+                y = inner.bottom() - (row + 1) * row_height + 1
+                painter.drawRect(x, y, self.CELL - 1, row_height - 1)
+
+        painter.setPen(palette.color("text"))
+        painter.setFont(theme.pixel_font(9))
+        painter.drawText(
+            rect.adjusted(6, 4, -6, 0),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            human_speed(peak),
+        )
+
+
 class SegmentBar(QWidget):
     """One stripe per segment - makes dynamic splitting visible."""
 
@@ -116,7 +165,54 @@ class SegmentBar(QWidget):
 
     RADIUS = 6
 
+    #: pixel mode: width of one cell in the segment bar
+    CELL = 7
+
+    def _paint_pixel(self) -> None:
+        """A row of discrete cells, lit as the bytes arrive."""
+        palette = theme.current()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        rect = self.rect()
+        painter.fillRect(rect, palette.color("track"))
+
+        inner = rect.adjusted(3, 3, -3, -3)
+        cells = max(1, inner.width() // self.CELL)
+        done = [0.0] * cells
+        if self._size and self._segments:
+            for start, current, _end in self._segments:
+                if current <= start:
+                    continue
+                first = int(start / self._size * cells)
+                last = min(cells, int(current / self._size * cells) + 1)
+                for index in range(max(0, first), last):
+                    done[index] = 1.0
+        painter.setPen(Qt.PenStyle.NoPen)
+        for index, value in enumerate(done):
+            painter.setBrush(
+                palette.color("accent") if value else palette.color("surface_alt")
+            )
+            painter.drawRect(
+                inner.left() + index * self.CELL, inner.top(),
+                self.CELL - 1, inner.height(),
+            )
+        # Where each segment starts, so a dynamic split still shows.
+        if self._size and self._segments:
+            painter.setPen(QPen(palette.color("danger"), 1))
+            for start, _current, _end in self._segments:
+                if start == 0:
+                    continue
+                x = inner.left() + int(start / self._size * cells) * self.CELL
+                painter.drawLine(x, inner.top(), x, inner.bottom())
+
+        painter.setPen(QPen(palette.color("border"), 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect.adjusted(1, 1, -1, -1))
+
     def paintEvent(self, event) -> None:
+        if theme.current().pixel:
+            self._paint_pixel()
+            return
         palette = theme.current()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)

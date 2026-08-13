@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 import time
 from concurrent.futures import Future
@@ -37,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
     work = Path(args.work_dir) if args.work_dir else Path(
         os.environ.get("TEMP", ".")
     ) / "boltdown-shots"
+    # Every run starts from an empty profile. Reusing the previous one meant
+    # the demo queue already existed and the script died on a UNIQUE
+    # constraint - a screenshot script must not depend on its own history.
+    shutil.rmtree(work, ignore_errors=True)
     downloads = work / "downloads"
     downloads.mkdir(parents=True, exist_ok=True)
     os.environ["BOLTDOWN_HOME"] = str(work / "home")

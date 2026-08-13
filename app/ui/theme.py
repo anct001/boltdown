@@ -53,6 +53,9 @@ class Palette:
     opacity: int = 255
     #: Windows 11 backdrop to ask the compositor for: "mica" or "acrylic".
     backdrop: str | None = None
+    #: Square corners, hard borders, blocky icons and a bitmap font for the
+    #: readouts - everything the pixel look needs, off a single flag.
+    pixel: bool = False
 
     @property
     def is_dark(self) -> bool:
@@ -210,9 +213,31 @@ DRACULA = Palette(
     selection="#44475a",
 )
 
+#: A cabinet in a dark arcade: near-black navy, phosphor green, amber CRT.
+#: The colours are deliberately few and saturated - an NES could show 25 at a
+#: time and that constraint is most of why the era looks the way it does.
+PIXEL = Palette(
+    name="pixel", label="Pixel Art", dark=True,
+    window="#0f1422",
+    surface="#1a2133",
+    surface_alt="#252f49",
+    border="#4b5d8f",
+    text="#eaf4ff",
+    muted="#93a7cd",
+    accent="#ffd23f",       # arcade amber, the colour of a coin slot
+    accent_hover="#ffe480",
+    on_accent="#0f1422",
+    success="#3ae374",      # phosphor green
+    warning="#ff9f1a",
+    danger="#ff4757",
+    track="#0b0f19",
+    selection="#2f3c60",
+    pixel=True,
+)
+
 #: name -> palette, in the order the picker shows them
 THEMES: dict[str, Palette] = {
-    p.name: p for p in (LIGHT, DARK, CYBERPUNK, NEON, GLASS, NORD, DRACULA)
+    p.name: p for p in (LIGHT, DARK, CYBERPUNK, NEON, GLASS, NORD, DRACULA, PIXEL)
 }
 
 _current: Palette = LIGHT
@@ -475,6 +500,95 @@ def stylesheet(p: Palette) -> str:
     QScrollBar::handle:hover {{ background: {p.muted}; }}
     QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
     QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+    """ + (pixel_extra(p) if p.pixel else "")
+
+
+#: Families to try for the numeric readouts, best first. All three are raster
+#: fonts Windows still ships, which is exactly why they look right: they were
+#: drawn pixel by pixel. Falls back to a modern monospace when none is there.
+PIXEL_FONTS = ("Fixedsys", "Terminal", "Small Fonts", "Consolas", "monospace")
+
+
+def pixel_font(point_size: int = 10):
+    """A bitmap font for numbers, or the nearest thing this machine has.
+
+    Prose keeps the ordinary UI font on purpose: these raster fonts only carry
+    the glyphs of the system codepage, and Vietnamese labels in a font without
+    Vietnamese is a screen full of boxes. Digits, speeds and percentages are
+    ASCII, so they can have the arcade look at no risk.
+    """
+    from PySide6.QtGui import QFont, QFontInfo
+
+    for family in PIXEL_FONTS:
+        font = QFont(family, point_size)
+        if QFontInfo(font).family().lower() == family.lower():
+            font.setStyleStrategy(QFont.StyleStrategy.NoAntialias)
+            return font
+    font = QFont(PIXEL_FONTS[-1], point_size)
+    font.setStyleHint(QFont.StyleHint.TypeWriter)
+    return font
+
+
+def pixel_extra(p: Palette) -> str:
+    """Square off everything the base sheet rounded, and thicken the lines.
+
+    Appended rather than woven in: same selectors, later in the sheet, so they
+    win without a second copy of the stylesheet to maintain. Every rule names
+    its widgets - a `*` selector here would re-polish the whole application on
+    every theme change, which cost this project a 4x slowdown once already.
+    """
+    return f"""
+    /* ------------------------------------------------- pixel: hard edges */
+    QMenu, QMenu::item, QToolTip, QGroupBox, QLineEdit, QTextEdit,
+    QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox, QComboBox QAbstractItemView,
+    QPushButton, QToolBar QToolButton, QMenuBar::item, QTabBar::tab,
+    QTreeWidget, QTreeView, QTableView, QListView, QProgressBar,
+    QProgressBar::chunk, QScrollBar::handle, QCheckBox::indicator,
+    QRadioButton::indicator, QHeaderView::section {{
+        border-radius: 0px;
+    }}
+
+    QPushButton, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QGroupBox,
+    QTreeWidget, QTreeView, QTableView, QListView, QTextEdit, QPlainTextEdit {{
+        border: 2px solid {p.border};
+    }}
+    QPushButton:default, QPushButton:focus {{ border-color: {p.accent}; }}
+    QToolBar {{ border-bottom: 2px solid {p.border}; }}
+    QMenu, QToolTip {{ border: 2px solid {p.border}; }}
+
+    /* A health bar: discrete cells with a gap, not a smooth sweep. */
+    QProgressBar {{
+        background: {p.track};
+        border: 2px solid {p.border};
+        height: 16px;
+        padding: 0px;
+    }}
+    QProgressBar::chunk {{
+        background: {p.success};
+        width: 6px;
+        margin: 1px;
+    }}
+
+    QScrollBar:vertical {{ width: 12px; margin: 0px; }}
+    QScrollBar:horizontal {{ height: 12px; margin: 0px; }}
+    QScrollBar::handle {{ background: {p.border}; min-height: 24px; }}
+    QScrollBar::handle:hover {{ background: {p.accent}; }}
+
+    QHeaderView::section {{
+        border: 0;
+        border-right: 2px solid {p.window};
+        border-bottom: 2px solid {p.border};
+        font-weight: 700;
+    }}
+    QCheckBox::indicator, QRadioButton::indicator {{
+        border: 2px solid {p.border};
+        width: 12px;
+        height: 12px;
+    }}
+    QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
+        background: {p.accent};
+        border-color: {p.accent};
+    }}
     """
 
 

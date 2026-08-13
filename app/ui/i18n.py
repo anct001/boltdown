@@ -151,6 +151,10 @@ _VI: dict[str, str] = {
         "Sao chép địa chỉ rồi dán vào trình duyệt",
     "Copied:": "Đã sao chép:",
     "Registration": "Tình trạng đăng ký",
+    "Sound effects": "Hiệu ứng âm thanh",
+    "Volume:": "Âm lượng:",
+    "Volume": "Âm lượng",
+    "Listen": "Nghe thử",
     "Browser": "Trình duyệt",
     "Start with Windows (in the tray)": "Chạy cùng Windows (thu nhỏ xuống khay)",
     # video / streaming

@@ -218,6 +218,9 @@ class ProgressDelegate(QStyledItemDelegate):
             return
 
         palette = theme.current()
+        if palette.pixel:
+            self._paint_pixel(painter, option, item, palette)
+            return
         rect = QRectF(option.rect).adjusted(6, 7, -6, -7)
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -236,6 +239,50 @@ class ProgressDelegate(QStyledItemDelegate):
         painter.setPen(QPen(palette.color("text")))
         painter.drawText(
             option.rect, Qt.AlignmentFlag.AlignCenter,
+            DownloadTableModel.status_text(item),
+        )
+        painter.restore()
+
+
+    #: pixel mode: one lit cell every CELL px
+    CELL = 8
+
+    def _paint_pixel(self, painter, option, item, palette) -> None:
+        """A row of cells instead of a pill - the same bar a health meter uses.
+
+        The percentage is drawn beside the cells rather than on top of them:
+        text over a two-colour blocky bar is the one place this look becomes
+        unreadable.
+        """
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setPen(Qt.PenStyle.NoPen)
+        full = option.rect.adjusted(6, 8, -6, -8)
+        text_width = 52
+        track = full.adjusted(0, 0, -text_width, 0)
+
+        painter.setBrush(palette.color("track"))
+        painter.drawRect(track)
+
+        cells = max(1, track.width() // self.CELL)
+        fraction = max(0.0, min(1.0, item.percent / 100.0))
+        lit = int(round(cells * fraction))
+        done = item.state is TaskState.COMPLETED
+        painter.setBrush(palette.color("success" if done else "accent"))
+        for index in range(lit):
+            painter.drawRect(
+                track.left() + index * self.CELL + 1, track.top() + 1,
+                self.CELL - 2, track.height() - 2,
+            )
+        painter.setPen(QPen(palette.color("border"), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(track)
+
+        painter.setPen(QPen(palette.color("text")))
+        painter.setFont(theme.pixel_font(9))
+        painter.drawText(
+            option.rect.adjusted(0, 0, -8, 0),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
             DownloadTableModel.status_text(item),
         )
         painter.restore()

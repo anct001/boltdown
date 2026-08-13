@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSlider,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -33,6 +35,21 @@ from ..util.fmt import human_size, parse_size
 from . import theme
 from .add_url_dialog import QUALITIES
 from .i18n import LANGUAGES, tr
+
+
+class _Live:
+    """The saved settings, but with the volume the slider is showing now."""
+
+    def __init__(self, settings, volume: int) -> None:
+        self._settings = settings
+        self._volume = volume
+
+    def get(self, key, default=None):
+        if key == "sound_volume":
+            return self._volume
+        if key == "sound_effects":
+            return True
+        return self._settings.get(key, default)
 
 
 class SettingsDialog(QDialog):
@@ -109,7 +126,34 @@ class SettingsDialog(QDialog):
         form.addRow("", self.notify_on_finish)
         form.addRow(tr("Language:"), self.language)
         form.addRow(tr("Theme:"), self.theme)
+
+        # Sound sits with the theme on purpose: the blips are part of the
+        # look, not a separate feature to hunt for.
+        self.sound_effects = QCheckBox(tr("Sound effects"))
+        self.sound_effects.setChecked(bool(self.settings.get("sound_effects")))
+        self.sound_volume = QSlider(Qt.Orientation.Horizontal)
+        self.sound_volume.setRange(0, 100)
+        self.sound_volume.setValue(int(self.settings.get("sound_volume") or 0))
+        self.sound_volume.setToolTip(tr("Volume"))
+        preview = QPushButton(tr("Listen"))
+        preview.clicked.connect(self._preview_sound)
+        row = QHBoxLayout()
+        row.addWidget(self.sound_volume, 1)
+        row.addWidget(preview)
+        form.addRow("", self.sound_effects)
+        form.addRow(tr("Volume:"), row)
         return page
+
+    def _preview_sound(self) -> None:
+        """Play at the volume on the slider, whatever the checkbox says.
+
+        The point of the button is to hear it before deciding, so it ignores
+        the toggle and reads the slider rather than the saved setting.
+        """
+        from . import sounds
+
+        board = sounds.SoundBoard(_Live(self.settings, self.sound_volume.value()))
+        board.preview("completed")
 
     def _connection_tab(self) -> QWidget:
         page = QWidget()
@@ -341,6 +385,8 @@ class SettingsDialog(QDialog):
             "ask_before_download": self.ask_before.isChecked(),
             "language": self.language.currentData(),
             "theme": self.theme.currentData(),
+            "sound_effects": self.sound_effects.isChecked(),
+            "sound_volume": self.sound_volume.value(),
             "connections": self.connections.value(),
             "max_concurrent": self.concurrent.value(),
             "speed_limit": limit,

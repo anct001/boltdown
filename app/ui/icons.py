@@ -53,6 +53,243 @@ def _muted() -> QColor:
     return _token("muted")
 
 
+# --------------------------------------------------------------- pixel icons
+#
+# The pixel theme cannot use the shapes below: they are drawn with curves and
+# anti-aliasing, which is the one thing the look forbids. So the same icons
+# exist a second time as 8x8 grids - one character per pixel, `.` transparent,
+# `#` the icon's colour, `+` a dimmed shade for shading. Each cell is painted
+# as a whole square, so the result is crisp at any size instead of a smoothly
+# scaled small bitmap.
+
+PIXEL_GRID = 8
+
+
+def _pixel(rows: list[str], color: QColor, size: int = SIZE) -> QIcon:
+    cell = max(1, size // len(rows))
+    side = cell * len(rows)
+    pixmap = QPixmap(side, side)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    # No antialiasing anywhere: every edge lands on a whole pixel.
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+    painter.setPen(Qt.PenStyle.NoPen)
+    dim = QColor(color)
+    dim.setAlpha(120)
+    for y, row in enumerate(rows):
+        for x, mark in enumerate(row):
+            if mark == ".":
+                continue
+            painter.setBrush(QBrush(color if mark == "#" else dim))
+            painter.drawRect(x * cell, y * cell, cell, cell)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _is_pixel_theme() -> bool:
+    from . import theme
+
+    return theme.current().pixel
+
+
+#: name -> (grid, colour token). Only the icons the toolbar and menus show;
+#: anything else falls through to the drawn version, which the palette alone
+#: already makes fit.
+PIXEL_ICONS: dict[str, tuple[list[str], str]] = {
+    "add": ([
+        "........",
+        "...##...",
+        "...##...",
+        ".######.",
+        ".######.",
+        "...##...",
+        "...##...",
+        "........",
+    ], "success"),
+    "download": ([
+        "...##...",
+        "...##...",
+        "...##...",
+        "#..##..#",
+        "##....##",
+        ".######.",
+        "..####..",
+        "...##...",
+    ], "accent"),
+    "pause": ([
+        "........",
+        ".##..##.",
+        ".##..##.",
+        ".##..##.",
+        ".##..##.",
+        ".##..##.",
+        ".##..##.",
+        "........",
+    ], "warning"),
+    "stop": ([
+        "........",
+        ".######.",
+        ".######.",
+        ".######.",
+        ".######.",
+        ".######.",
+        ".######.",
+        "........",
+    ], "danger"),
+    "delete": ([
+        "..####..",
+        ".######.",
+        "########",
+        ".#.##.#.",
+        ".#.##.#.",
+        ".#.##.#.",
+        ".######.",
+        "..####..",
+    ], "danger"),
+    "settings": ([
+        "..#..#..",
+        ".######.",
+        "###..###",
+        "#..##..#",
+        "#..##..#",
+        "###..###",
+        ".######.",
+        "..#..#..",
+    ], "muted"),
+    "clock": ([
+        "..####..",
+        ".#....#.",
+        "#..#...#",
+        "#..#...#",
+        "#..###.#",
+        "#......#",
+        ".#....#.",
+        "..####..",
+    ], "accent"),
+    "globe": ([
+        "..####..",
+        ".#.##.#.",
+        "########",
+        "#.####.#",
+        "#.####.#",
+        "########",
+        ".#.##.#.",
+        "..####..",
+    ], "accent"),
+    "folder": ([
+        "........",
+        "###.....",
+        "########",
+        "#++++++#",
+        "#++++++#",
+        "#++++++#",
+        "########",
+        "........",
+    ], "warning"),
+    "batch": ([
+        "........",
+        "#.#####.",
+        "........",
+        "#.#####.",
+        "........",
+        "#.#####.",
+        "........",
+        "#.#####.",
+    ], "accent"),
+    "history": ([
+        "..####..",
+        ".#....#.",
+        "#...#..#",
+        "#...#..#",
+        "#...###.",
+        "#......#",
+        ".#....#.",
+        "..####..",
+    ], "muted"),
+    "link": ([
+        "..####..",
+        ".#....##",
+        "#..##..#",
+        "..#..#..",
+        "..#..#..",
+        "#..##..#",
+        "##....#.",
+        "..####..",
+    ], "accent"),
+    "queue": ([
+        "##....##",
+        "##....##",
+        "........",
+        "##....##",
+        "##....##",
+        "........",
+        "##....##",
+        "##....##",
+    ], "accent"),
+    "shield": ([
+        ".######.",
+        "#++++++#",
+        "#+#..#+#",
+        "#+####+#",
+        "#+#..#+#",
+        ".#+..+#.",
+        "..#++#..",
+        "...##...",
+    ], "success"),
+    "clipboard": ([
+        "..####..",
+        ".######.",
+        "########",
+        "#++++++#",
+        "#+####+#",
+        "#++++++#",
+        "#+####+#",
+        "########",
+    ], "muted"),
+    "dropbox": ([
+        "###..###",
+        "#......#",
+        "........",
+        "........",
+        "........",
+        "#......#",
+        "###..###",
+        "........",
+    ], "accent"),
+    "resume_all": ([
+        "........",
+        "##....##",
+        "###...##",
+        "####..##",
+        "####..##",
+        "###...##",
+        "##....##",
+        "........",
+    ], "success"),
+    "exit": ([
+        "...##...",
+        "..####..",
+        ".##..##.",
+        "##....##",
+        "##....##",
+        "########",
+        ".######.",
+        "..####..",
+    ], "danger"),
+}
+
+
+def _maybe_pixel(name: str, color: QColor | None) -> QIcon | None:
+    """The pixel-art version of `name`, when that theme is on."""
+    if not _is_pixel_theme():
+        return None
+    entry = PIXEL_ICONS.get(name)
+    if entry is None:
+        return None
+    rows, token = entry
+    return _pixel(rows, color or _token(token))
+
+
 def _stroke(p: QPainter, color: QColor, width: float = 2.2) -> None:
     pen = QPen(color)
     pen.setWidthF(width)
@@ -63,6 +300,9 @@ def _stroke(p: QPainter, color: QColor, width: float = 2.2) -> None:
 
 
 def add_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("add", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QBrush(color or _token("success")))
@@ -72,6 +312,9 @@ def add_icon(color: QColor | None = None) -> QIcon:
 
 
 def download_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("download", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QBrush(color or _token("accent")))
@@ -87,6 +330,9 @@ def download_icon(color: QColor | None = None) -> QIcon:
 
 
 def pause_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("pause", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QBrush(color or _token("warning")))
@@ -96,6 +342,9 @@ def pause_icon(color: QColor | None = None) -> QIcon:
 
 
 def stop_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("stop", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QBrush(color or _token("danger")))
@@ -104,6 +353,9 @@ def stop_icon(color: QColor | None = None) -> QIcon:
 
 
 def delete_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("delete", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QBrush(color or _token("danger")))
@@ -117,6 +369,9 @@ def delete_icon(color: QColor | None = None) -> QIcon:
 
 
 def settings_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("settings", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QBrush(color or _token("muted")))
@@ -133,6 +388,9 @@ def settings_icon(color: QColor | None = None) -> QIcon:
 
 
 def batch_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("batch", color)
+    if pixel is not None:
+        return pixel
     """Three stacked rows plus a small plus - "add many"."""
     pixmap, p = _canvas()
     p.setPen(Qt.PenStyle.NoPen)
@@ -145,6 +403,9 @@ def batch_icon(color: QColor | None = None) -> QIcon:
 
 
 def clock_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("clock", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     pen = QPen(color or _accent())
     pen.setWidthF(2.4)
@@ -157,6 +418,9 @@ def clock_icon(color: QColor | None = None) -> QIcon:
 
 
 def history_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("history", color)
+    if pixel is not None:
+        return pixel
     """A clock whose dial is open on the left, with an arrow back into it."""
     pixmap, p = _canvas()
     pen = QPen(color or _accent())
@@ -178,6 +442,9 @@ def history_icon(color: QColor | None = None) -> QIcon:
 
 
 def globe_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("globe", color)
+    if pixel is not None:
+        return pixel
     """Site grabber: a globe with one meridian and one parallel."""
     pixmap, p = _canvas()
     pen = QPen(color or _accent())
@@ -191,6 +458,9 @@ def globe_icon(color: QColor | None = None) -> QIcon:
 
 
 def resume_all_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("resume_all", color)
+    if pixel is not None:
+        return pixel
     """Two chevrons pointing down - "everything, continue"."""
     pixmap, p = _canvas()
     _stroke(p, color or _accent(), 2.6)
@@ -217,6 +487,9 @@ def open_file_icon(color: QColor | None = None) -> QIcon:
 
 
 def folder_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("folder", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     _stroke(p, color or _accent())
     path = QPainterPath()
@@ -232,6 +505,9 @@ def folder_icon(color: QColor | None = None) -> QIcon:
 
 
 def link_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("link", color)
+    if pixel is not None:
+        return pixel
     """Two chain links - copy URL."""
     pixmap, p = _canvas()
     _stroke(p, color or _accent(), 2.4)
@@ -270,6 +546,9 @@ def info_icon(color: QColor | None = None) -> QIcon:
 
 
 def shield_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("shield", color)
+    if pixel is not None:
+        return pixel
     """Checksum: a shield with a tick."""
     pixmap, p = _canvas()
     accent = color or _accent()
@@ -288,6 +567,9 @@ def shield_icon(color: QColor | None = None) -> QIcon:
 
 
 def queue_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("queue", color)
+    if pixel is not None:
+        return pixel
     """Stacked layers - a download queue."""
     pixmap, p = _canvas()
     accent = color or _accent()
@@ -305,6 +587,9 @@ def queue_icon(color: QColor | None = None) -> QIcon:
 
 
 def clipboard_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("clipboard", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     accent = color or _accent()
     _stroke(p, accent)
@@ -316,6 +601,9 @@ def clipboard_icon(color: QColor | None = None) -> QIcon:
 
 
 def dropbox_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("dropbox", color)
+    if pixel is not None:
+        return pixel
     """The floating target: a dashed box with an arrow going into it."""
     pixmap, p = _canvas()
     accent = color or _accent()
@@ -338,6 +626,9 @@ def dropbox_icon(color: QColor | None = None) -> QIcon:
 
 
 def exit_icon(color: QColor | None = None) -> QIcon:
+    pixel = _maybe_pixel("exit", color)
+    if pixel is not None:
+        return pixel
     pixmap, p = _canvas()
     _stroke(p, color or _muted(), 2.4)
     p.drawArc(QRectF(6, 6, 20, 20), 60 * 16, 300 * 16)

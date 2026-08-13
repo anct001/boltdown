@@ -60,9 +60,9 @@ Hai nút **Hẹn giờ** và **Quét trang web** mở phần hàng đợi và Si
 | ![Tiến độ](docs/screenshots/progress-dialog.png) | ![Thêm URL](docs/screenshots/add-url.png) |
 | ![Thêm hàng loạt](docs/screenshots/batch.png) | ![Hẹn giờ](docs/screenshots/scheduler.png) |
 
-### Bảy bộ giao diện
+### Tám bộ giao diện
 
-**Tuỳ chọn → Giao diện** chọn một trong bảy, hoặc để **Theo Windows** cho nó tự
+**Tuỳ chọn → Giao diện** chọn một trong tám, hoặc để **Theo Windows** cho nó tự
 đổi sáng/tối theo hệ thống. Đổi là thấy ngay, không cần khởi động lại — kể cả
 icon cũng được vẽ lại theo màu mới.
 
@@ -70,7 +70,7 @@ icon cũng được vẽ lại theo màu mới.
 |---|---|---|
 | ![Sáng](docs/screenshots/themes/light.png)<br>**Sáng** | ![Tối](docs/screenshots/themes/dark.png)<br>**Tối** | ![Cyberpunk](docs/screenshots/themes/cyberpunk.png)<br>**Cyberpunk** |
 | ![Neon](docs/screenshots/themes/neon.png)<br>**Neon** | ![Kính mờ](docs/screenshots/themes/glass.png)<br>**Kính mờ** | ![Nord](docs/screenshots/themes/nord.png)<br>**Nord** |
-| ![Dracula](docs/screenshots/themes/dracula.png)<br>**Dracula** | | |
+| ![Dracula](docs/screenshots/themes/dracula.png)<br>**Dracula** | ![Pixel Art](docs/screenshots/themes/pixel.png)<br>**Pixel Art** | |
 
 Vài điểm về cách làm:
 
@@ -85,11 +85,53 @@ Vài điểm về cách làm:
   Tạm dừng lấy warning, Dừng/Xoá lấy danger. Cyberpunk ra hồng tím, Neon ra
   xanh cyan, không cần bộ icon riêng cho từng theme.
 
+#### Pixel Art
+
+Theme thứ tám không chỉ đổi màu mà đổi cả cách vẽ:
+
+- **Icon vẽ lại theo lưới 8×8**, mỗi ô là một hình vuông đặc và tắt khử răng
+  cưa — phóng to bao nhiêu cũng sắc cạnh, không nhoè. Có test đếm số màu trong
+  icon: quá hai màu nghĩa là viền đã bị làm mượt.
+- **Thanh tiến độ thành thanh máu**: các ô rời nhau thay vì một vệt liền. Cột
+  Trạng thái trong bảng, `QProgressBar` và bản đồ các đoạn đều vậy.
+- **Đồ thị tốc độ thành cột equalizer** chia mười nấc, xanh ở dưới, vàng ở
+  đỉnh; biểu đồ 30 ngày trong Thống kê xếp bằng các khối 6px.
+- **Số liệu dùng font bitmap** (Fixedsys → Terminal → Small Fonts → Consolas,
+  lấy cái đầu tiên máy thật sự có). Chữ tiếng Việt vẫn dùng font hệ thống: mấy
+  font raster kia chỉ có glyph theo codepage, đem viết nhãn tiếng Việt là ra
+  một màn hình toàn ô vuông.
+- Bo góc bị ép về 0 và viền dày 2px bằng một khối QSS phụ nối vào cuối
+  stylesheet — **không dùng selector `*`** (một lần dùng đã làm bộ test GUI
+  chậm gấp bốn), và có test canh đúng chỗ đó.
+
+### Hiệu ứng âm thanh 8-bit
+
+**Tuỳ chọn → Hiệu ứng âm thanh**, kèm thanh âm lượng và nút *Nghe thử*. Bốn sự
+kiện có tiếng: thêm link (tiếng xu), tải xong (giai điệu 1-up bốn nốt), lỗi (ba
+nốt đi xuống), xong cả hàng đợi (fanfare có thêm tiếng trống nhiễu).
+
+Repo không kèm file `.wav` nào — âm thanh được **tự tổng hợp**: sóng vuông,
+sóng xung 25%, sóng tam giác và nhiễu trắng, mỗi nốt có bao biên độ vào/ra để
+loa không kêu "cạch" ở hai đầu. File WAV sinh một lần rồi nằm trong
+`%LOCALAPPDATA%\Boltdown\sounds`.
+
+Vài quyết định đáng nói:
+
+- **Âm lượng được nướng thẳng vào mẫu**, vì trình phát không có nút chỉnh âm
+  lượng: mỗi mức là một file riêng.
+- Phát bằng `winsound` của thư viện chuẩn với cờ `SND_ASYNC` — không chặn luồng
+  giao diện, và không phải kéo cả Qt Multimedia (vài chục MB) vào bản đóng gói
+  chỉ để phát bốn tiếng bíp.
+- Máy không có thiết bị âm thanh thì `play()` trả về False và ghi log; tải
+  xuống không việc gì.
+- Có test **đếm điểm cắt không** của sóng để chắc rằng nốt phát ra đúng cao độ
+  đã viết (sai số dưới 3%), chứ không chỉ là một mớ byte đúng độ dài.
+
 Ảnh chụp trong tài liệu sinh lại được bằng:
 
 ```bash
 .venv/Scripts/python scripts/make_screenshots.py --theme dark
-.venv/Scripts/python scripts/make_screenshots.py --gallery   # bảng bảy theme ở trên
+.venv/Scripts/python scripts/make_screenshots.py --gallery   # bảng tám theme ở trên
 ```
 
 ## Tích hợp trình duyệt

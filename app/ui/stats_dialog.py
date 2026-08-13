@@ -84,9 +84,53 @@ class DailyChart(QWidget):
         self._data = list(data)
         self.update()
 
+    #: pixel mode: height of one stacked block
+    BLOCK = 6
+
+    def _paint_pixel(self, painter, palette) -> None:
+        """The same 30 days, stacked out of blocks instead of drawn as bars."""
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        rect = self.rect()
+        painter.fillRect(rect, palette.color("track"))
+        painter.setPen(QPen(palette.color("border"), 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect.adjusted(1, 1, -1, -1))
+        if not self._data:
+            return
+        peak = max((value for _day, value in self._data), default=0)
+        if peak <= 0:
+            painter.setPen(QPen(palette.color("muted")))
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, tr("No downloads yet"))
+            return
+
+        inner = rect.adjusted(6, 18, -6, -6)
+        step = max(1, inner.width() // max(1, len(self._data)))
+        rows = max(1, inner.height() // self.BLOCK)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for index, (_day, value) in enumerate(self._data):
+            blocks = int(round(rows * (value / peak)))
+            x = inner.left() + index * step
+            for row in range(blocks):
+                painter.setBrush(
+                    palette.color("accent" if row == blocks - 1 else "success")
+                )
+                y = inner.bottom() - (row + 1) * self.BLOCK
+                painter.drawRect(x, y, max(2, step - 2), self.BLOCK - 1)
+
+        painter.setPen(QPen(palette.color("text")))
+        painter.setFont(theme.pixel_font(9))
+        painter.drawText(
+            rect.adjusted(6, 3, -6, 0),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            human_size(peak),
+        )
+
     def paintEvent(self, event) -> None:
         palette = theme.current()
         painter = QPainter(self)
+        if palette.pixel:
+            self._paint_pixel(painter, palette)
+            return
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         painter.setPen(QPen(palette.color("border"), 1))
