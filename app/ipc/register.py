@@ -1,9 +1,15 @@
-"""Register the native messaging host with Chromium-based browsers.
+"""Register the native messaging host with the browsers on this machine.
 
-Chrome finds a host by reading `HKCU\\Software\\<Browser>\\NativeMessagingHosts\\
-<host name>`, whose default value is the path of a JSON manifest. The manifest
-names the executable to run and - critically - which extension IDs may talk to
-it, so a hostile page cannot drive the download manager.
+A browser finds a host by reading `HKCU\\Software\\<Browser>\\
+NativeMessagingHosts\\<host name>`, whose default value is the path of a JSON
+manifest. The manifest names the executable to run and - critically - which
+extensions may talk to it, so a hostile page cannot drive the download manager.
+
+Firefox uses the same registry mechanism but its own dialect: extensions are
+listed under `allowed_extensions` as add-on ids (`boltdown@anct001`), where
+Chromium wants `allowed_origins` full of `chrome-extension://<32 letters>/`.
+Two manifests are therefore written side by side, and which one a browser is
+pointed at depends on which family it belongs to.
 
     python -m app.ipc.register --install <extension-id> [<extension-id> ...]
     python -m app.ipc.register --status
@@ -26,10 +32,20 @@ BROWSER_KEYS = {
     "edge": r"Software\Microsoft\Edge\NativeMessagingHosts",
     "chromium": r"Software\Chromium\NativeMessagingHosts",
     "brave": r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts",
+    # Mozilla's key is shared by Firefox and its forks (LibreWolf, Waterfox).
+    "firefox": r"Software\Mozilla\NativeMessagingHosts",
 }
+#: browsers that speak Firefox's dialect of the manifest
+GECKO_BROWSERS = frozenset({"firefox"})
 
+#: what Chrome shows under an unpacked extension: 32 letters, a-p only
 EXTENSION_ID = re.compile(r"^[a-p]{32}$")
+#: what a Firefox add-on calls itself: an email address or a {GUID}
+GECKO_ID = re.compile(r"^([^@\s]+@[^@\s.]+(\.[^@\s.]+)*|\{[0-9a-fA-F-]{36}\})$")
+#: the add-on id this project ships in the Firefox manifest
+DEFAULT_GECKO_ID = "boltdown@anct001"
 MANIFEST_NAME = f"{HOST_NAME}.json"
+GECKO_MANIFEST_NAME = f"{HOST_NAME}.firefox.json"
 LAUNCHER_NAME = "native_host.bat" if sys.platform == "win32" else "native_host.sh"
 #: the console executable an installed build ships for native messaging
 FROZEN_HOST_NAME = "boltdown-host.exe" if sys.platform == "win32" else "boltdown-host"
@@ -40,7 +56,13 @@ def _project_root() -> Path:
 
 
 def valid_extension_id(value: str) -> bool:
-    return bool(EXTENSION_ID.match(value.strip()))
+    """True for either dialect of identifier."""
+    value = value.strip()
+    return bool(EXTENSION_ID.match(value) or GECKO_ID.match(value))
+
+
+def is_gecko_id(value: str) -> bool:
+    return bool(GECKO_ID.match(value.strip()))
 
 
 def frozen_host() -> Path | None:
@@ -87,24 +109,60 @@ def write_launcher(target_dir: Path | None = None) -> Path:
     return path
 
 
-def build_manifest(extension_ids: list[str], launcher: Path) -> dict:
-    return {
+def extension_dir(flavour: str = "chrome") -> Path | None:
+    """The unpacked extension to load into the browser, or None.
+
+    A packaged build carries both flavours next to the program; a checkout has
+    the Chromium one in `extension/` (that is the source of truth) and gets the
+    Firefox one from `scripts/build_extension.py`.
+    """
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", "") or Path(sys.executable).parent)
+        candidate = base / "extension" / flavour
+        if candidate.is_dir():
+            return candidate
+        legacy = base / "extension"  # a build made before the split
+        return legacy if flavour == "chrome" and legacy.is_dir() else None
+    root = _project_root()
+    if flavour == "chrome":
+        candidate = root / "extension"
+        return candidate if candidate.is_dir() else None
+    built = root / "dist" / "extension" / flavour
+    return built if built.is_dir() else None
+
+
+def build_manifest(extension_ids: list[str], launcher: Path, *, gecko: bool = False) -> dict:
+    """The manifest for one browser family.
+
+    Chromium identifies the caller by origin, Firefox by add-on id, and each
+    rejects a manifest carrying the other's key - hence the two shapes.
+    """
+    manifest = {
         "name": HOST_NAME,
         "description": "Boltdown download manager integration",
         "path": str(launcher),
         "type": "stdio",
-        "allowed_origins": [f"chrome-extension://{eid}/" for eid in extension_ids],
     }
+    if gecko:
+        ids = [eid for eid in extension_ids if is_gecko_id(eid)] or [DEFAULT_GECKO_ID]
+        manifest["allowed_extensions"] = ids
+    else:
+        manifest["allowed_origins"] = [
+            f"chrome-extension://{eid}/"
+            for eid in extension_ids
+            if EXTENSION_ID.match(eid.strip())
+        ]
+    return manifest
 
 
 def write_manifest(
-    extension_ids: list[str], target_dir: Path | None = None
+    extension_ids: list[str], target_dir: Path | None = None, *, gecko: bool = False
 ) -> Path:
     target_dir = Path(target_dir) if target_dir else data_dir()
     target_dir.mkdir(parents=True, exist_ok=True)
     launcher = write_launcher(target_dir)
-    manifest = build_manifest(extension_ids, launcher)
-    path = target_dir / MANIFEST_NAME
+    manifest = build_manifest(extension_ids, launcher, gecko=gecko)
+    path = target_dir / (GECKO_MANIFEST_NAME if gecko else MANIFEST_NAME)
     path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return path
 
@@ -122,15 +180,22 @@ def install(
     if not extension_ids:
         raise ValueError("at least one extension id is required")
 
-    manifest_path = write_manifest(extension_ids, target_dir)
+    wanted = [b for b in (browsers or list(BROWSER_KEYS)) if b in BROWSER_KEYS]
+    chromium_ids = [e for e in extension_ids if EXTENSION_ID.match(e.strip())]
+    manifests: dict[bool, Path] = {}
     results: dict[str, str] = {}
-    for browser in browsers or list(BROWSER_KEYS):
-        subkey = BROWSER_KEYS.get(browser)
-        if subkey is None:
+    for browser in wanted:
+        gecko = browser in GECKO_BROWSERS
+        # A Chromium browser with no Chromium id to allow would get a manifest
+        # that permits nobody; say so instead of writing a useless key.
+        if not gecko and not chromium_ids:
+            results[browser] = "skipped: no chrome extension id given"
             continue
+        if gecko not in manifests:
+            manifests[gecko] = write_manifest(extension_ids, target_dir, gecko=gecko)
         try:
-            _write_registry(f"{key_prefix}{subkey}", str(manifest_path))
-            results[browser] = str(manifest_path)
+            _write_registry(f"{key_prefix}{BROWSER_KEYS[browser]}", str(manifests[gecko]))
+            results[browser] = str(manifests[gecko])
         except OSError as exc:
             results[browser] = f"failed: {exc}"
     return results
@@ -199,7 +264,8 @@ def main(argv: list[str] | None = None) -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--install", nargs="+", metavar="EXT_ID",
-        help="extension id(s) from chrome://extensions (32 letters a-p)",
+        help="extension id(s): 32 letters from chrome://extensions, and/or a "
+             f"Firefox add-on id such as {DEFAULT_GECKO_ID}",
     )
     group.add_argument("--uninstall", action="store_true")
     group.add_argument("--status", action="store_true")

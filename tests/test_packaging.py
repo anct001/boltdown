@@ -364,3 +364,66 @@ def test_the_write_ahead_log_travels_with_the_database(tmp_path, monkeypatch):
     for suffix, expected in (("", b"main"), ("-wal", b"-wal"), ("-shm", b"-shm")):
         assert new_db.with_name(new_db.name + suffix).read_bytes() == expected
     assert not list(new_db.parent.glob("idmclone.db*"))
+
+
+# ------------------------------------------------- packaging the browser extension
+
+
+def build_extension_module():
+    import importlib
+
+    sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+    return importlib.import_module("build_extension")
+
+
+def test_each_browser_family_gets_the_manifest_it_understands(tmp_path):
+    """A Firefox service worker never starts; a Chrome gecko id is ignored."""
+    import json
+
+    from app import __version__
+    from app.ipc.register import DEFAULT_GECKO_ID
+
+    built = build_extension_module().build(tmp_path)
+    made = {name: (folder, archive) for name, folder, archive in built}
+    assert set(made) == {"chrome", "firefox"}
+
+    chrome = json.loads((made["chrome"][0] / "manifest.json").read_text(encoding="utf-8"))
+    firefox = json.loads((made["firefox"][0] / "manifest.json").read_text(encoding="utf-8"))
+
+    assert "service_worker" in chrome["background"]
+    assert firefox["background"] == {"scripts": ["background.js"]}
+    assert "browser_specific_settings" not in chrome
+    assert firefox["browser_specific_settings"]["gecko"]["id"] == DEFAULT_GECKO_ID
+    assert "minimum_chrome_version" not in firefox
+    # The extension never claims a version the application does not have.
+    assert chrome["version"] == firefox["version"] == __version__
+
+
+def test_both_variants_carry_the_whole_extension(tmp_path):
+    import zipfile
+
+    built = build_extension_module().build(tmp_path)
+    for name, folder, archive in built:
+        for required in ("background.js", "content.js", "popup/popup.html",
+                         "icons/icon48.png"):
+            assert (folder / required).is_file(), f"{name} is missing {required}"
+        with zipfile.ZipFile(archive) as zf:
+            names = zf.namelist()
+        assert "manifest.json" in names and "background.js" in names
+        assert not any(n.startswith("..") or ":" in n for n in names)
+    assert built[1][2].suffix == ".xpi", "Firefox installs .xpi, not .zip"
+
+
+def test_rebuilding_does_not_accumulate_stale_files(tmp_path):
+    module = build_extension_module()
+    module.build(tmp_path)
+    litter = tmp_path / "chrome" / "left-over.js"
+    litter.write_text("// from an older build", encoding="utf-8")
+    module.build(tmp_path)
+    assert not litter.exists()
+
+
+def test_the_spec_ships_both_flavours_for_the_installed_build():
+    spec = SPEC.read_text(encoding="utf-8")
+    assert "build_extension" in spec
+    assert 'f"extension/{name}"' in spec

@@ -22,6 +22,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # sibling scripts
 
 from app import __version__  # noqa: E402
 
@@ -137,6 +138,13 @@ def main(argv: list[str] | None = None) -> int:
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     build_icon()
+
+    # The extension is packaged first: it is what the user has to load into
+    # their browser, and it costs a second.
+    import build_extension
+
+    for name, _folder, archive in build_extension.build(DIST / "extension"):
+        print(f"extension:   {name:8} {archive.name}")
 
     code = build_app(args.clean)
     if code != 0:

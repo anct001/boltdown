@@ -210,7 +210,7 @@ class SettingsDialog(QDialog):
     def _browser_tab(self) -> QWidget:
         page = QWidget()
         self.extension_id = QLineEdit(self.settings.get("extension_id") or "")
-        self.extension_id.setPlaceholderText(tr("32 letters from chrome://extensions"))
+        self.extension_id.setPlaceholderText(tr("extension id, or a Firefox add-on id"))
         register_button = QPushButton(tr("Register"))
         register_button.clicked.connect(self._register_host)
         remove_button = QPushButton(tr("Remove"))
@@ -257,7 +257,7 @@ class SettingsDialog(QDialog):
         if not register.valid_extension_id(extension_id):
             QMessageBox.warning(
                 self, tr("Browser integration"),
-                tr("32 letters from chrome://extensions"),
+                tr("extension id, or a Firefox add-on id"),
             )
             return
         try:

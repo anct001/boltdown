@@ -16,6 +16,7 @@
 # One-dir, not one-file: a one-file build unpacks to %TEMP% on every launch,
 # which costs seconds of startup and reliably upsets antivirus heuristics.
 
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_submodules
@@ -47,8 +48,19 @@ EXCLUDES = [
     "tkinter", "matplotlib", "numpy", "pytest", "PIL",
 ]
 
+# Both browser flavours travel with the application: the user has to point
+# their browser at one of these folders, and an installed build has no scripts
+# directory to generate them from. Built here so they cannot go stale.
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+import build_extension  # noqa: E402
+
+EXTENSIONS = build_extension.build(PROJECT_ROOT / "dist" / "extension")
+
 DATAS = [
-    (str(PROJECT_ROOT / "extension"), "extension"),
+    *(
+        (str(folder), f"extension/{name}")
+        for name, folder, _archive in EXTENSIONS
+    ),
     (str(PROJECT_ROOT / "README.md"), "."),
 ]
 

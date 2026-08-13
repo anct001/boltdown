@@ -38,6 +38,7 @@ from ..util.fmt import human_speed
 from . import icons, theme
 from .add_url_dialog import AddUrlDialog
 from .batch_dialog import BatchDialog
+from .browser_dialog import BrowserDialog
 from .checksum_dialog import ChecksumDialog
 from .clipboard_watch import ClipboardWatcher
 from .controller import Controller, DownloadItem
@@ -171,6 +172,11 @@ class MainWindow(QMainWindow):
         self.action_profiles = QAction(icons.globe_icon(), tr("Site rules"), self)
         self.action_profiles.triggered.connect(self.open_profiles)
 
+        self.action_browser = QAction(
+            icons.link_icon(), tr("Browser integration"), self
+        )
+        self.action_browser.triggered.connect(self.open_browser_setup)
+
         self.action_dropbox = QAction(icons.dropbox_icon(), tr("Drop box"), self)
         self.action_dropbox.setCheckable(True)
         self.action_dropbox.setChecked(bool(self.settings.get("dropbox_visible")))
@@ -229,6 +235,7 @@ class MainWindow(QMainWindow):
         downloads.addAction(self.action_grabber)
 
         options = menu.addMenu(tr("Options"))
+        options.addAction(self.action_browser)
         options.addAction(self.action_profiles)
         options.addSeparator()
         options.addAction(self.action_clipboard)
@@ -452,6 +459,9 @@ class MainWindow(QMainWindow):
                 self.controller.add(url)
                 self._notify(tr("Add URL"), url)
 
+    def open_browser_setup(self) -> None:
+        BrowserDialog(self.settings, self).exec()
+
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec() != SettingsDialog.DialogCode.Accepted:
@@ -478,6 +488,7 @@ class MainWindow(QMainWindow):
             (self.action_options, icons.settings_icon()),
             (self.action_scheduler, icons.clock_icon()),
             (self.action_grabber, icons.globe_icon()),
+            (self.action_browser, icons.link_icon()),
             (self.action_history, icons.history_icon()),
             (self.action_dropbox, icons.dropbox_icon()),
             (self.action_clipboard, icons.clipboard_icon()),

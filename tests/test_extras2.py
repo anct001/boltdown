@@ -222,3 +222,90 @@ def test_an_unreachable_or_private_repo_is_not_an_error():
     assert updates.fetch_latest(fetch_json=refuse) is None
     assert updates.check("0.2.0", fetch_json=refuse) is None
     assert updates.release_from_dict({}) is None
+
+
+# ------------------------------------------------- the browser integration dialog
+
+
+def test_the_dialog_lists_every_browser_and_its_registration(qapp, tmp_path, monkeypatch):
+    from app.storage.db import Database
+    from app.storage.settings import Settings
+    from app.ui import browser_dialog
+    from app.ipc import register
+
+    monkeypatch.setattr(
+        register, "status",
+        lambda *a, **k: {"chrome": r"C:\x\com.boltdown.host.json", "firefox": None},
+    )
+    db = Database(":memory:")
+    dialog = browser_dialog.BrowserDialog(Settings(db))
+    rows = [
+        (dialog.tree.topLevelItem(i).text(0), dialog.tree.topLevelItem(i).text(1))
+        for i in range(dialog.tree.topLevelItemCount())
+    ]
+    db.close()
+    assert rows[0] == ("Google Chrome", r"C:\x\com.boltdown.host.json")
+    assert rows[1][0] == "Firefox" and "đăng ký" in rows[1][1].lower()
+
+
+def test_registering_from_the_dialog_always_covers_firefox(qapp, monkeypatch):
+    """Firefox's id is fixed, so there is no reason to leave it out."""
+    from app.storage.db import Database
+    from app.storage.settings import Settings
+    from app.ui import browser_dialog
+    from app.ipc import register
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(register, "install", lambda ids, *a, **k: calls.append(list(ids)) or {})
+    monkeypatch.setattr(register, "status", lambda *a, **k: {})
+
+    db = Database(":memory:")
+    settings = Settings(db)
+    dialog = browser_dialog.BrowserDialog(settings)
+    dialog.extension_id.setText("a" * 32)
+    dialog.register_host()
+    assert calls == [["a" * 32, register.DEFAULT_GECKO_ID]]
+    assert settings.get("extension_id") == "a" * 32
+
+    # With nothing typed at all, Firefox alone is still worth registering.
+    calls.clear()
+    dialog.extension_id.setText("")
+    dialog.register_host()
+    db.close()
+    assert calls == [[register.DEFAULT_GECKO_ID]]
+
+
+def test_a_typo_in_the_id_is_refused_not_registered(qapp, monkeypatch):
+    from app.storage.db import Database
+    from app.storage.settings import Settings
+    from app.ui import browser_dialog
+    from app.ipc import register
+
+    monkeypatch.setattr(register, "status", lambda *a, **k: {})
+    monkeypatch.setattr(
+        register, "install",
+        lambda *a, **k: pytest.fail("a bad id must never reach the registrar"),
+    )
+    warned = []
+    monkeypatch.setattr(
+        browser_dialog.QMessageBox, "warning",
+        lambda *args, **kwargs: warned.append(args[2]),
+    )
+    db = Database(":memory:")
+    dialog = browser_dialog.BrowserDialog(Settings(db))
+    dialog.extension_id.setText("not-an-id")
+    dialog.register_host()
+    db.close()
+    assert warned, "the user was told nothing"
+
+
+def test_the_dialog_never_installs_the_extension_itself(qapp):
+    """Browsers do not let a program add extensions behind the user's back,
+    and this dialog must not pretend otherwise - it only opens folders."""
+    import inspect
+
+    from app.ui import browser_dialog
+
+    source = inspect.getsource(browser_dialog)
+    for forbidden in ("--load-extension", "ExtensionInstallForcelist", "webstore"):
+        assert forbidden not in source

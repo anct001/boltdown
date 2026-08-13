@@ -4,10 +4,15 @@ import io
 import json
 import struct
 import sys
+from pathlib import Path
 
 import pytest
 
 from app.ipc import endpoint, native_host, register
+
+windows_only = pytest.mark.skipif(
+    sys.platform != "win32", reason="the registry is a Windows thing"
+)
 from app.ipc.protocol import (
     HOST_NAME,
     ProtocolError,
@@ -304,3 +309,94 @@ def _delete_tree(winreg, root, path: str) -> None:
         winreg.DeleteKey(root, path)
     except OSError:
         pass
+
+
+# ------------------------------------------------- Firefox speaks its own dialect
+
+
+def test_firefox_gets_a_manifest_it_can_actually_read(tmp_path):
+    """`allowed_origins` and `allowed_extensions` are not interchangeable."""
+    launcher = tmp_path / "native_host.bat"
+    chromium = register.build_manifest(["a" * 32], launcher)
+    gecko = register.build_manifest(["boltdown@anct001"], launcher, gecko=True)
+
+    assert chromium["allowed_origins"] == ["chrome-extension://" + "a" * 32 + "/"]
+    assert "allowed_extensions" not in chromium
+    assert gecko["allowed_extensions"] == ["boltdown@anct001"]
+    assert "allowed_origins" not in gecko
+    assert gecko["path"] == str(launcher) and gecko["type"] == "stdio"
+
+
+def test_a_chromium_id_never_leaks_into_the_firefox_manifest(tmp_path):
+    gecko = register.build_manifest(
+        ["a" * 32, "boltdown@anct001"], tmp_path / "h.bat", gecko=True
+    )
+    assert gecko["allowed_extensions"] == ["boltdown@anct001"]
+    chromium = register.build_manifest(
+        ["a" * 32, "boltdown@anct001"], tmp_path / "h.bat"
+    )
+    assert chromium["allowed_origins"] == ["chrome-extension://" + "a" * 32 + "/"]
+
+
+def test_firefox_falls_back_to_the_id_this_project_ships(tmp_path):
+    """Registering with only a Chrome id still leaves Firefox usable."""
+    gecko = register.build_manifest(["a" * 32], tmp_path / "h.bat", gecko=True)
+    assert gecko["allowed_extensions"] == [register.DEFAULT_GECKO_ID]
+
+
+@pytest.mark.parametrize("value, ok", [
+    ("a" * 32, True),
+    ("boltdown@anct001", True),
+    ("{d4d4d4d4-1111-2222-3333-444444444444}", True),
+    ("z" * 32, False),          # q-z are not in Chrome's alphabet
+    ("nope", False),
+    ("", False),
+    ("a" * 31, False),
+])
+def test_both_kinds_of_identifier_are_recognised(value, ok):
+    assert register.valid_extension_id(value) is ok
+
+
+@windows_only
+def test_each_browser_family_is_pointed_at_its_own_manifest(tmp_path):
+    prefix = "Software\\Boltdown\\test-families\\"
+    try:
+        results = register.install(
+            ["a" * 32, "boltdown@anct001"], target_dir=tmp_path, key_prefix=prefix
+        )
+        state = register.status(key_prefix=prefix)
+        assert state["firefox"].endswith(register.GECKO_MANIFEST_NAME)
+        assert state["chrome"].endswith(register.MANIFEST_NAME)
+        assert state["chrome"] != state["firefox"]
+        assert set(results) == set(register.BROWSER_KEYS)
+
+        # Both files are on disk and are valid JSON of the right shape.
+        firefox = json.loads(Path(state["firefox"]).read_text(encoding="utf-8"))
+        chrome = json.loads(Path(state["chrome"]).read_text(encoding="utf-8"))
+        assert firefox["allowed_extensions"] == ["boltdown@anct001"]
+        assert chrome["allowed_origins"] == ["chrome-extension://" + "a" * 32 + "/"]
+    finally:
+        register.uninstall(key_prefix=prefix)
+    assert set(register.status(key_prefix=prefix).values()) == {None}
+
+
+@windows_only
+def test_a_chromium_browser_is_not_registered_without_a_chromium_id(tmp_path):
+    """A manifest allowing nobody is worse than no manifest: say so."""
+    prefix = "Software\\Boltdown\\test-gecko-only\\"
+    try:
+        results = register.install(
+            ["boltdown@anct001"], target_dir=tmp_path, key_prefix=prefix
+        )
+        assert "skipped" in results["chrome"]
+        assert results["firefox"].endswith(register.GECKO_MANIFEST_NAME)
+        state = register.status(key_prefix=prefix)
+        assert state["chrome"] is None and state["firefox"] is not None
+    finally:
+        register.uninstall(key_prefix=prefix)
+
+
+def test_the_extension_folder_can_be_found_from_a_checkout():
+    chrome = register.extension_dir("chrome")
+    assert chrome is not None and (chrome / "manifest.json").is_file()
+    assert (chrome / "background.js").is_file()

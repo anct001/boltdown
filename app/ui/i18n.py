@@ -124,6 +124,34 @@ _VI: dict[str, str] = {
     "Remove": "Gỡ",
     "Registered for": "Đã đăng ký cho",
     "Not registered yet": "Chưa đăng ký",
+    "extension id, or a Firefox add-on id":
+        "ID tiện ích, hoặc ID add-on của Firefox",
+    "With the extension installed, every download you start in the "
+    "browser is handed to Boltdown instead.":
+        "Khi đã cài tiện ích, mọi lượt tải bắt đầu từ trình duyệt sẽ được "
+        "chuyển sang Boltdown.",
+    "1. Load the extension into your browser":
+        "1. Nạp tiện ích vào trình duyệt",
+    "2. Allow it to talk to Boltdown":
+        "2. Cho phép tiện ích nói chuyện với Boltdown",
+    "Chrome, Edge, Brave: Developer mode -> Load unpacked":
+        "Chrome, Edge, Brave: bật Developer mode → Load unpacked",
+    "Firefox: about:debugging -> Load Temporary Add-on -> manifest.json":
+        "Firefox: about:debugging → Load Temporary Add-on → chọn manifest.json",
+    "The Firefox folder is built by scripts/build_extension.py.":
+        "Thư mục cho Firefox do scripts/build_extension.py sinh ra.",
+    "Chromium gives the unpacked extension a new id every time it is "
+    "loaded, so paste the id shown under its name. Firefox always uses "
+    "the same one and is registered already.":
+        "Chromium cấp ID mới mỗi lần nạp tiện ích dạng unpacked, nên hãy dán "
+        "ID hiện dưới tên tiện ích. Firefox luôn dùng một ID cố định và đã "
+        "được đăng ký sẵn.",
+    "Extensions page:": "Trang tiện ích:",
+    "Copy the address; paste it into the browser":
+        "Sao chép địa chỉ rồi dán vào trình duyệt",
+    "Copied:": "Đã sao chép:",
+    "Registration": "Tình trạng đăng ký",
+    "Browser": "Trình duyệt",
     "Start with Windows (in the tray)": "Chạy cùng Windows (thu nhỏ xuống khay)",
     # video / streaming
     "Video / stream": "Video / luồng phát",

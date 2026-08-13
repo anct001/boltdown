@@ -92,7 +92,14 @@ Vài điểm về cách làm:
 .venv/Scripts/python scripts/make_screenshots.py --gallery   # bảng bảy theme ở trên
 ```
 
-## Tích hợp Chrome / Edge
+## Tích hợp trình duyệt
+
+Hỗ trợ **Chrome, Edge, Chromium, Brave và Firefox**. Cách nhanh nhất là mở
+**Tuỳ chọn → Tích hợp trình duyệt** trong app: dialog đó mở sẵn thư mục tiện
+ích, chép địa chỉ trang tiện ích, nhận ID và cho biết trình duyệt nào đã đăng ký.
+Phần dưới là các bước thủ công tương ứng.
+
+### Chrome / Edge / Brave
 
 Ba bước, làm theo đúng thứ tự vì bước 3 cần ID sinh ra ở bước 2:
 
@@ -112,8 +119,41 @@ này không cần dòng lệnh và cũng cho biết trình duyệt nào đã nh�
 
 Kiểm tra: `--host-status`. Gỡ: `--unregister-host`.
 
-Sau đó bấm một link tải bất kỳ trong trình duyệt — extension huỷ download của
-Chrome và chuyển URL **kèm cookie, referer và User-Agent** sang app (thiếu cookie
+### Firefox
+
+Firefox nói cùng giao thức nhưng khác phương ngữ, nên bản dựng cho nó là một
+thư mục riêng:
+
+```bash
+.venv/Scripts/python scripts/build_extension.py
+```
+
+sinh ra `dist/extension/firefox/` (kèm file `.xpi`) và `dist/extension/chrome/`.
+Sau đó mở `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** →
+chọn `dist/extension/firefox/manifest.json`.
+
+Khác biệt so với Chromium, đều đã xử lý sẵn:
+
+| | Chromium | Firefox |
+|---|---|---|
+| ID tiện ích | đổi mỗi lần nạp unpacked | cố định `boltdown@anct001` |
+| manifest native host | `allowed_origins` | `allowed_extensions` |
+| khoá registry | `Software\Google\Chrome\…` | `Software\Mozilla\…` |
+| script nền | service worker | `background.scripts` |
+| `downloads.onDeterminingFilename` | có | **không có** — app dùng `onCreated` |
+
+Vì ID của Firefox cố định nên nó **được đăng ký sẵn** ngay cả khi bạn chỉ dán ID
+của Chrome. Hai manifest nằm cạnh nhau (`com.boltdown.host.json` và
+`com.boltdown.host.firefox.json`), không đè lên nhau.
+
+Lưu ý: bản add-on chưa ký chỉ nạp tạm được (mất khi đóng Firefox). Muốn cài lâu
+dài thì phải ký qua addons.mozilla.org, hoặc dùng Firefox Developer Edition /
+Nightly với `xpinstall.signatures.required=false`.
+
+### Sau khi cài xong
+
+Bấm một link tải bất kỳ trong trình duyệt — extension huỷ download của
+trình duyệt và chuyển URL **kèm cookie, referer và User-Agent** sang app (thiếu cookie
 thì file cần đăng nhập sẽ tải về thành trang login). Nút nổi "Tải video này" xuất
 hiện khi trang có media: link `.m3u8`/`.mpd` đi thẳng vào pipeline video, còn với
 YouTube/Vimeo/TikTok... extension gửi **URL của trang** để app hỏi yt-dlp (URL
@@ -126,7 +166,7 @@ mở cửa sổ thứ hai.
 Cách hoạt động:
 
 ```
-Chrome extension ──native messaging (4-byte length + JSON trên stdio)──> native_host.bat
+Extension ──────native messaging (4-byte length + JSON trên stdio)──> native_host.bat
                                                                               │
         app/ipc/endpoint.py  <──JSON theo dòng, TCP 127.0.0.1 + token──────────┘
                     │

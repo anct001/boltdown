@@ -174,11 +174,18 @@ async function takeOver(item, suggestedName) {
   }
 }
 
-chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  takeOver(item, item.filename);
-  // Chrome falls back to the default name; we cancel the transfer anyway.
-  suggest();
-});
+// onDeterminingFilename is a Chromium extension to the API; Firefox has no
+// such event, and touching `.addListener` on undefined would kill this whole
+// script - taking every other listener below with it. onCreated exists
+// everywhere and is enough on its own, so this one is a bonus: it fires
+// earlier, before the browser has opened its own file.
+if (chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    takeOver(item, item.filename);
+    // Chrome falls back to the default name; we cancel the transfer anyway.
+    suggest();
+  });
+}
 
 chrome.downloads.onCreated.addListener((item) => {
   // Fallback for downloads that never reach the naming stage.
@@ -187,6 +194,11 @@ chrome.downloads.onCreated.addListener((item) => {
 
 // ------------------------------------------------------------------ media sniff
 
+// storage.session is where the per-tab media list belongs: it is rebuilt by
+// browsing and should not outlive the browser. Firefox only grew it in 115,
+// so fall back to local storage rather than throwing on every sniffed URL.
+const sessionStore = chrome.storage.session || chrome.storage.local;
+
 function mediaKey(tabId) {
   return `media:${tabId}`;
 }
@@ -194,12 +206,12 @@ function mediaKey(tabId) {
 async function rememberMedia(tabId, entry) {
   if (tabId < 0) return;
   const key = mediaKey(tabId);
-  const store = await chrome.storage.session.get(key);
+  const store = await sessionStore.get(key);
   const list = store[key] || [];
   if (list.some((m) => m.url === entry.url)) return;
   list.push(entry);
   while (list.length > MAX_MEDIA_PER_TAB) list.shift();
-  await chrome.storage.session.set({ [key]: list });
+  await sessionStore.set({ [key]: list });
 
   chrome.action.setBadgeBackgroundColor({ color: "#1565c0" }).catch(() => {});
   chrome.action.setBadgeText({ tabId, text: String(list.length) }).catch(() => {});
@@ -227,12 +239,12 @@ chrome.webRequest.onBeforeRequest.addListener(
 );
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.storage.session.remove(mediaKey(tabId)).catch(() => {});
+  sessionStore.remove(mediaKey(tabId)).catch(() => {});
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== "loading" || !changeInfo.url) return;
-  chrome.storage.session.remove(mediaKey(tabId)).catch(() => {});
+  sessionStore.remove(mediaKey(tabId)).catch(() => {});
   chrome.action.setBadgeText({ tabId, text: "" }).catch(() => {});
 });
 
@@ -251,7 +263,7 @@ async function route(message, sender) {
 
     case "get-media": {
       const tabId = message.tabId ?? sender.tab?.id ?? -1;
-      const store = await chrome.storage.session.get(mediaKey(tabId));
+      const store = await sessionStore.get(mediaKey(tabId));
       const items = store[mediaKey(tabId)] || [];
       const pageUrl = message.pageUrl || sender.tab?.url;
       const page = pageEntry(pageUrl);
