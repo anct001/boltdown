@@ -443,3 +443,80 @@ async def test_a_paused_download_is_not_wiped_by_a_different_one(server, tmp_pat
     again = TaskRunner(3, _request(slow_url, tmp_path))
     assert await again.run() is TaskState.COMPLETED
     assert sha256(tmp_path / "setup.exe") == sha256(mine)
+
+
+# ------------------------------------------- a 403 is not a password prompt
+
+
+def test_a_refusal_and_a_password_prompt_are_different_errors():
+    """"Authentication required" for a 403 sent people hunting for a password
+    that does not exist; the real cause is usually a CDN turning away anything
+    that is not a browser."""
+    from app.core.errors import (
+        AuthRequiredError,
+        ForbiddenError,
+        NotFoundError,
+        classify_status,
+    )
+
+    assert isinstance(classify_status(401), AuthRequiredError)
+    assert isinstance(classify_status(403), ForbiddenError)
+    assert isinstance(classify_status(404), NotFoundError)
+    assert classify_status(200) is None and classify_status(206) is None
+
+    advice = str(classify_status(403))
+    assert "browser" in advice and "cookies" in advice, "say what to do about it"
+    assert "authentication" not in advice.lower()
+
+
+async def test_cookies_from_the_browser_get_past_a_gate(tmp_path):
+    """The advice in that message, put to the test against a server that
+    refuses everyone without the cookie a browser would have."""
+    import http.server
+    import threading
+
+    payload = make_payload(64 * 1024, seed=950)
+    secret = "gate=letmein"
+
+    class Gate(http.server.BaseHTTPRequestHandler):
+        def _guard(self) -> bool:
+            if secret not in (self.headers.get("Cookie") or ""):
+                self.send_response(403)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return False
+            return True
+
+        def do_HEAD(self):
+            if not self._guard():
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+
+        def do_GET(self):
+            if not self._guard():
+                return
+            self.do_HEAD()
+            self.wfile.write(payload)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Gate)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/gated.bin"
+    try:
+        refused = TaskRunner(1, _request(url, tmp_path))
+        assert await refused.run() is TaskState.ERROR
+        assert "403" in (refused.error or "")
+        assert not list(tmp_path.glob("gated.bin"))
+
+        request = _request(url, tmp_path)
+        request.cookie = secret
+        allowed = TaskRunner(2, request)
+        assert await allowed.run() is TaskState.COMPLETED
+        assert sha256(tmp_path / "gated.bin") == sha256(payload)
+    finally:
+        server.shutdown()
