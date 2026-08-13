@@ -56,6 +56,8 @@ class Palette:
     #: Square corners, hard borders, blocky icons and a bitmap font for the
     #: readouts - everything the pixel look needs, off a single flag.
     pixel: bool = False
+    #: Bars and charts are drawn as isometric blocks rather than flat cells.
+    iso: bool = False
 
     @property
     def is_dark(self) -> bool:
@@ -235,9 +237,32 @@ PIXEL = Palette(
     pixel=True,
 )
 
+#: Daylight over a voxel town: warmer and more colourful than the arcade
+#: palette, because here the colours have to read as *materials* - six tower
+#: hues that stay apart from each other when shaded three ways.
+ISO = Palette(
+    name="iso", label="Isometric 3D", dark=True,
+    window="#161d2e",
+    surface="#202a41",
+    surface_alt="#2c3a58",
+    border="#54689b",
+    text="#f0f6ff",
+    muted="#9fb3d9",
+    accent="#f9a03f",       # terracotta roof
+    accent_hover="#ffb864",
+    on_accent="#161d2e",
+    success="#5ad67d",      # grass
+    warning="#ffd166",      # sand
+    danger="#ef476f",       # brick
+    track="#101625",
+    selection="#33456d",
+    pixel=True,
+    iso=True,
+)
+
 #: name -> palette, in the order the picker shows them
 THEMES: dict[str, Palette] = {
-    p.name: p for p in (LIGHT, DARK, CYBERPUNK, NEON, GLASS, NORD, DRACULA, PIXEL)
+    p.name: p for p in (LIGHT, DARK, CYBERPUNK, NEON, GLASS, NORD, DRACULA, PIXEL, ISO)
 }
 
 _current: Palette = LIGHT

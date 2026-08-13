@@ -27,6 +27,7 @@ DEFAULTS: dict[str, Any] = {
     "start_with_windows": False,   # mirrored into the HKCU Run key
     "extension_id": None,          # last id registered for native messaging
     "theme": "auto",               # auto (follow Windows) | light | dark
+    "scene_visible": False,        # the isometric town under the table
     "sound_effects": True,         # 8-bit blips on finish / error / queue done
     "sound_volume": 60,            # 0-100, baked into the rendered wav
     "clipboard_monitor": False,    # catch links as they are copied

@@ -152,6 +152,10 @@ _VI: dict[str, str] = {
     "Copied:": "Đã sao chép:",
     "Registration": "Tình trạng đăng ký",
     "Sound effects": "Hiệu ứng âm thanh",
+    "Download town": "Thành phố tải xuống",
+    "All downloads finished": "Đã tải xong tất cả",
+    "Nothing downloading - the town is quiet":
+        "Chưa tải gì — thành phố đang vắng",
     "Volume:": "Âm lượng:",
     "Volume": "Âm lượng",
     "Listen": "Nghe thử",

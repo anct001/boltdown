@@ -40,6 +40,7 @@ from .add_url_dialog import AddUrlDialog
 from .batch_dialog import BatchDialog
 from . import sounds as sound_effects
 from .browser_dialog import BrowserDialog
+from .scene import SceneWidget, rows_from_items
 from .checksum_dialog import ChecksumDialog
 from .clipboard_watch import ClipboardWatcher
 from .controller import Controller, DownloadItem
@@ -184,6 +185,11 @@ class MainWindow(QMainWindow):
         )
         self.action_browser.triggered.connect(self.open_browser_setup)
 
+        self.action_scene = QAction(icons.queue_icon(), tr("Download town"), self)
+        self.action_scene.setCheckable(True)
+        self.action_scene.setChecked(bool(self.settings.get("scene_visible")))
+        self.action_scene.toggled.connect(self.toggle_scene)
+
         self.action_dropbox = QAction(icons.dropbox_icon(), tr("Drop box"), self)
         self.action_dropbox.setCheckable(True)
         self.action_dropbox.setChecked(bool(self.settings.get("dropbox_visible")))
@@ -247,6 +253,7 @@ class MainWindow(QMainWindow):
         options.addSeparator()
         options.addAction(self.action_clipboard)
         options.addAction(self.action_dropbox)
+        options.addAction(self.action_scene)
         options.addSeparator()
         options.addAction(self.action_options)
 
@@ -316,11 +323,17 @@ class MainWindow(QMainWindow):
         header.resizeSection(COL_STATUS, 150)
         self.table.sortByColumn(COL_ADDED, Qt.SortOrder.AscendingOrder)
 
+        # The town lives under the table, and is fed by the same timer that
+        # already refreshes the status bar - no second clock.
+        self.scene = SceneWidget(self)
+        self.scene.setVisible(bool(self.settings.get("scene_visible")))
+
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self.search)
         right_layout.addWidget(self.table, 1)
+        right_layout.addWidget(self.scene)
 
         splitter = QSplitter()
         splitter.addWidget(self.tree)
@@ -719,7 +732,15 @@ class MainWindow(QMainWindow):
         self.action_resume.setEnabled(stopped and not live)
         self.action_delete.setEnabled(bool(items))
 
+    def toggle_scene(self, visible: bool) -> None:
+        self.scene.setVisible(visible)
+        self.settings.set("scene_visible", bool(visible))
+        if visible:
+            self.scene.update_downloads(rows_from_items(self.controller.items()))
+
     def _refresh_status(self) -> None:
+        if self.scene.isVisible():
+            self.scene.update_downloads(rows_from_items(self.controller.items()))
         speed = self.controller.total_speed()
         active = self.controller.active_count()
         self.status_speed.setText(human_speed(speed) if active else "")

@@ -57,6 +57,9 @@ class SpeedGraph(QWidget):
         self.update()
 
     def paintEvent(self, event) -> None:
+        if theme.current().iso:
+            self._paint_iso()
+            return
         if theme.current().pixel:
             self._paint_pixel()
             return
@@ -102,6 +105,48 @@ class SpeedGraph(QWidget):
             human_speed(peak),
         )
 
+
+    def _paint_iso(self) -> None:
+        """The rolling rate as a skyline of towers, newest on the right."""
+        from . import voxel
+
+        palette = theme.current()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        rect = self.rect()
+        painter.fillRect(rect, palette.color("track"))
+        painter.setPen(QPen(palette.color("border"), 2))
+        painter.drawRect(rect.adjusted(1, 1, -1, -1))
+        if not self._samples:
+            return
+
+        peak = max(self._samples) or 1.0
+        step = 10
+        columns = max(1, (rect.width() - 24) // step)
+        recent = list(self._samples)[-columns:]
+        # Same reasoning as the table delegate: the towers stand in a straight
+        # line across the widget, so the camera moves rather than the grid.
+        levels_max = max(1, (rect.height() - 40) // 6)
+        for index, value in enumerate(recent):
+            levels = max(1, int(round(value / (peak * 1.05) * levels_max)))
+            offset = columns - len(recent) + index
+            camera = voxel.Camera(
+                origin_x=rect.left() + 16 + offset * step,
+                origin_y=rect.bottom() - 16,
+                tile_w=step // 2, tile_h=max(2, step // 4), voxel_h=6,
+            )
+            voxel.draw_stack(
+                painter, camera, 0, 0, levels,
+                color=palette.color("success" if levels < levels_max * 0.75 else "accent"),
+            )
+
+        painter.setPen(palette.color("text"))
+        painter.setFont(theme.pixel_font(9))
+        painter.drawText(
+            rect.adjusted(6, 4, -6, 0),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            human_speed(peak),
+        )
 
     #: pixel mode: one bar every CELL px, quantised to STEPS heights
     CELL = 6

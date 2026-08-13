@@ -31,7 +31,9 @@ def test_the_pixel_theme_is_offered_like_any_other():
     assert "pixel" in theme.THEMES
     assert theme.THEMES["pixel"].pixel is True
     assert theme.resolve("pixel") is theme.PIXEL
-    assert [p.name for p in theme.THEMES.values() if p.pixel] == ["pixel"]
+    # Isometric is a pixel theme as well - it wants the same square corners
+    # and blocky icons, and only changes how the bars are drawn.
+    assert [p.name for p in theme.THEMES.values() if p.pixel] == ["pixel", "iso"]
 
 
 def test_the_pixel_sheet_squares_every_corner_it_rounds_elsewhere():

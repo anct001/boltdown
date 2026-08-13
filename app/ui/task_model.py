@@ -218,6 +218,9 @@ class ProgressDelegate(QStyledItemDelegate):
             return
 
         palette = theme.current()
+        if palette.iso:
+            self._paint_iso(painter, option, item, palette)
+            return
         if palette.pixel:
             self._paint_pixel(painter, option, item, palette)
             return
@@ -243,6 +246,56 @@ class ProgressDelegate(QStyledItemDelegate):
         )
         painter.restore()
 
+
+    #: isometric mode: one block every ISO_STEP px, drawn back to front
+    ISO_STEP = 9
+
+    def _paint_iso(self, painter, option, item, palette) -> None:
+        """The bar as a row of blocks standing on the row, seen from above.
+
+        Drawn right to left so each block overlaps the one behind it, which is
+        the whole of the painter's algorithm at this scale.
+        """
+        from . import voxel
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        full = option.rect.adjusted(8, 0, -8, 0)
+        text_width = 54
+        track = full.adjusted(0, 0, -text_width, 0)
+
+        blocks = max(1, track.width() // self.ISO_STEP)
+        fraction = max(0.0, min(1.0, item.percent / 100.0))
+        lit = int(round(blocks * fraction))
+        done = item.state is TaskState.COMPLETED
+        base = palette.color("success" if done else "accent")
+        shades = voxel.ramp(base, max(2, lit))
+        # Along the isometric x axis a row would slope downwards - fine for a
+        # town, wrong inside a 24 pixel table row. So each block is placed by
+        # moving the camera sideways instead: a row of dice, all at one depth.
+        baseline = option.rect.center().y() - 3
+        for index in range(blocks):
+            filled = index < lit
+            camera = voxel.Camera(
+                origin_x=track.left() + index * self.ISO_STEP + 4,
+                origin_y=baseline,
+                tile_w=self.ISO_STEP // 2, tile_h=max(2, self.ISO_STEP // 4),
+                voxel_h=7,
+            )
+            voxel.draw_cube(
+                painter, camera, 0, 0, 0,
+                color=shades[index] if filled else palette.color("surface_alt"),
+                height=7 if filled else 3,
+            )
+
+        painter.setPen(QPen(palette.color("text")))
+        painter.setFont(theme.pixel_font(9))
+        painter.drawText(
+            option.rect.adjusted(0, 0, -8, 0),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            DownloadTableModel.status_text(item),
+        )
+        painter.restore()
 
     #: pixel mode: one lit cell every CELL px
     CELL = 8

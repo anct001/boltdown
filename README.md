@@ -60,9 +60,9 @@ Hai nút **Hẹn giờ** và **Quét trang web** mở phần hàng đợi và Si
 | ![Tiến độ](docs/screenshots/progress-dialog.png) | ![Thêm URL](docs/screenshots/add-url.png) |
 | ![Thêm hàng loạt](docs/screenshots/batch.png) | ![Hẹn giờ](docs/screenshots/scheduler.png) |
 
-### Tám bộ giao diện
+### Chín bộ giao diện
 
-**Tuỳ chọn → Giao diện** chọn một trong tám, hoặc để **Theo Windows** cho nó tự
+**Tuỳ chọn → Giao diện** chọn một trong chín, hoặc để **Theo Windows** cho nó tự
 đổi sáng/tối theo hệ thống. Đổi là thấy ngay, không cần khởi động lại — kể cả
 icon cũng được vẽ lại theo màu mới.
 
@@ -70,7 +70,7 @@ icon cũng được vẽ lại theo màu mới.
 |---|---|---|
 | ![Sáng](docs/screenshots/themes/light.png)<br>**Sáng** | ![Tối](docs/screenshots/themes/dark.png)<br>**Tối** | ![Cyberpunk](docs/screenshots/themes/cyberpunk.png)<br>**Cyberpunk** |
 | ![Neon](docs/screenshots/themes/neon.png)<br>**Neon** | ![Kính mờ](docs/screenshots/themes/glass.png)<br>**Kính mờ** | ![Nord](docs/screenshots/themes/nord.png)<br>**Nord** |
-| ![Dracula](docs/screenshots/themes/dracula.png)<br>**Dracula** | ![Pixel Art](docs/screenshots/themes/pixel.png)<br>**Pixel Art** | |
+| ![Dracula](docs/screenshots/themes/dracula.png)<br>**Dracula** | ![Pixel Art](docs/screenshots/themes/pixel.png)<br>**Pixel Art** | ![Isometric 3D](docs/screenshots/themes/iso.png)<br>**Isometric 3D** |
 
 Vài điểm về cách làm:
 
@@ -104,6 +104,38 @@ Theme thứ tám không chỉ đổi màu mà đổi cả cách vẽ:
   stylesheet — **không dùng selector `*`** (một lần dùng đã làm bộ test GUI
   chậm gấp bốn), và có test canh đúng chỗ đó.
 
+#### Isometric 3D và thành phố tải xuống
+
+Theme thứ chín vẽ mọi thanh đo bằng **khối lập phương isometric** thay vì ô
+phẳng, và mở thêm một khung cảnh động dưới bảng tải.
+
+Về hình học (`app/ui/voxel.py`):
+
+- ô lát tỉ lệ **2:1** — đường 45° đi hai pixel ngang cho mỗi pixel dọc nên rơi
+  đúng tâm pixel, khác tỉ lệ là cạnh bị nhấp nháy;
+- một khối = **ba hình tứ giác** (mặt trên, trái, phải) tô ba sắc độ của cùng
+  một màu; mắt đọc ra ngay là khối đặc được chiếu sáng từ trên trái;
+- mỗi tầng trong một tháp có sắc độ riêng, nếu tô một màu phẳng thì các mạch
+  nối trùng lên mặt dưới và cả tháp thành một lăng trụ trơn — mất hết ý nghĩa
+  của voxel.
+
+Chỗ áp dụng: cột **Trạng thái** thành hàng khối (ô đã tải nổi cao, ô chưa tải
+là tấm phẳng), **đồ thị tốc độ** thành đường chân trời các tháp, biểu đồ 30
+ngày và thanh tiến độ cũng vậy. Lưu ý nhỏ nhưng quan trọng: trong ô bảng cao
+24px thì trục x isometric làm hàng khối **dốc xuống**, nên ở đó camera dịch
+theo pixel chứ không đi theo trục lưới.
+
+**Thành phố tải xuống** (`Tuỳ chọn → Thành phố tải xuống`): mỗi mục đang tải là
+một toà tháp cao dần theo phần trăm, mỗi mục có một chiếc xe chạy trên đường
+với vận tốc lấy từ **tốc độ tải thật**, mây trôi, bầu trời đổi theo **đồng hồ
+máy** (đêm có sao, ngày có mặt trời), tải xong thì tháp nhấp nháy và bắn khối
+lên trời.
+
+Nó là đồ trang trí, mà đồ trang trí thì phải sòng phẳng về chi phí: **timer chỉ
+chạy khi còn thứ gì đang chuyển động**. Danh sách rảnh thì vẽ một khung tĩnh
+rồi dừng hẳn — có test canh đúng điều đó, và một test nữa đo thời gian vẽ một
+khung phải nằm dưới ngân sách 50ms của 20 khung/giây.
+
 ### Hiệu ứng âm thanh 8-bit
 
 **Tuỳ chọn → Hiệu ứng âm thanh**, kèm thanh âm lượng và nút *Nghe thử*. Bốn sự
@@ -131,7 +163,7 @@ Vài quyết định đáng nói:
 
 ```bash
 .venv/Scripts/python scripts/make_screenshots.py --theme dark
-.venv/Scripts/python scripts/make_screenshots.py --gallery   # bảng tám theme ở trên
+.venv/Scripts/python scripts/make_screenshots.py --gallery   # bảng chín theme ở trên
 ```
 
 ## Tích hợp trình duyệt

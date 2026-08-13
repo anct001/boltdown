@@ -83,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
         "max_concurrent": 3,
         "connections": 8,
         "theme": args.theme,
+        # The town is part of the look these shots are for.
+        "scene_visible": args.theme in ("pixel", "iso"),
     })
     controller = Controller(db, settings)
     controller.start()
