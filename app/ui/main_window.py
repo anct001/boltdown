@@ -34,6 +34,7 @@ from ..core.task import TaskState
 from ..media.detect import classify
 from ..storage.settings import Settings
 from ..util import postprocess, power
+from ..util.log import get_logger
 from ..util.fmt import human_speed
 from . import icons, theme
 from .add_url_dialog import AddUrlDialog
@@ -74,6 +75,8 @@ _ACTION_LABELS = {
     "hibernate": "Downloads finished - hibernating",
     "sleep": "Downloads finished - going to sleep",
 }
+
+log = get_logger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -613,6 +616,31 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def _prefilled_dialog(self, options: dict) -> None:
+        """Confirm a captured link - or queue it if a dialog is already up.
+
+        Two things went wrong here in real use. A modal dialog left open
+        anywhere in the application - the settings window, say - blocks every
+        later confirmation, so links from the browser pile up invisibly and
+        the application looks dead. And Windows refuses to let a background
+        process steal the foreground, so even a fresh dialog can open *behind*
+        the browser with nothing to say it is there.
+
+        So: only ever one confirmation at a time. Anything captured while one
+        is open (or while any other modal dialog is) goes straight into the
+        list, paused, with a notification - a link is never lost and nothing
+        queues up behind a window the user cannot see. And the dialog asks the
+        taskbar to flash, which is the polite way to say "over here".
+        """
+        blocker = QApplication.activeModalWidget()
+        if blocker is not None:
+            item = self.controller.add(**{**options, "start_now": False})
+            self._notify(
+                tr("Captured from the browser"),
+                tr("Added to the list, waiting: %s") % item.filename,
+            )
+            log.info("a dialog was already open; %s went into the list", item.filename)
+            return
+
         dialog = AddUrlDialog(self.settings, url=options["url"], parent=self)
         if options.get("filename"):
             dialog.name_edit.setText(options["filename"])
@@ -628,6 +656,12 @@ class MainWindow(QMainWindow):
         self.showNormal()
         self.raise_()
         self.activateWindow()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        # Windows will not hand the foreground to a background process; the
+        # taskbar flash is what the user actually notices.
+        QApplication.alert(dialog)
         if dialog.exec() == AddUrlDialog.DialogCode.Accepted:
             self.controller.add(**dialog.options())
 

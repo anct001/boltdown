@@ -592,3 +592,57 @@ def test_a_remote_command_still_works_from_the_gui_thread_itself(qapp):
     bridge = IpcBridge()
     bridge.snapshot = lambda: [{"id": 7}]
     assert bridge.handle({"type": TYPE_LIST}) == {"ok": True, "downloads": [{"id": 7}]}
+
+
+# ------------------------------- a captured link must never queue behind a modal
+
+
+def test_a_link_captured_while_a_dialog_is_open_still_lands(qapp, stack, monkeypatch):
+    """What "the application stopped working" actually was.
+
+    A modal dialog left open anywhere - the settings window in the reported
+    case - blocks every later confirmation. The links were accepted over IPC
+    and then waited invisibly behind it, so nothing ever downloaded.
+    """
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    controller, settings, _db = stack
+    settings.set("ask_before_download", True)
+    window = MainWindow(controller, settings)
+
+    opened: list[str] = []
+    monkeypatch.setattr(
+        window, "_notify", lambda title, body: opened.append(f"{title}|{body}")
+    )
+    # Something modal is already on screen.
+    blocker = QDialog(window)
+    blocker.setModal(True)
+    blocker.show()
+    qapp.processEvents()
+    assert QApplication.activeModalWidget() is blocker
+
+    window.handle_ipc_download({"url": "https://example.com/real.iso"})
+
+    items = controller.items()
+    assert [i.filename for i in items] == ["real.iso"], "the link vanished"
+    assert items[0].state is TaskState.PAUSED, "it must wait, not start behind a modal"
+    assert opened and "real.iso" in opened[0]
+
+    blocker.close()
+    window.close()
+
+
+def test_without_a_blocking_dialog_the_confirmation_is_shown(qapp, stack, monkeypatch):
+    controller, settings, _db = stack
+    settings.set("ask_before_download", True)
+    window = MainWindow(controller, settings)
+
+    shown: list[object] = []
+    monkeypatch.setattr(
+        "app.ui.main_window.AddUrlDialog.exec",
+        lambda self: shown.append(self) or 0,   # 0 = rejected, nothing added
+    )
+    window.handle_ipc_download({"url": "https://example.com/other.iso"})
+    assert len(shown) == 1, "the dialog should have been offered"
+    assert controller.items() == []
+    window.close()

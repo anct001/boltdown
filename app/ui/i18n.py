@@ -116,6 +116,7 @@ _VI: dict[str, str] = {
     "Paste URL from clipboard": "Dán URL từ clipboard",
     "Browser integration": "Tích hợp trình duyệt",
     "Captured from the browser": "Bắt được từ trình duyệt",
+    "Added to the list, waiting: %s": "Đã thêm vào danh sách, đang chờ: %s",
     "Extension ID:": "ID tiện ích:",
     "32 letters from chrome://extensions": "32 chữ cái lấy ở chrome://extensions",
     "Load extension/ as an unpacked extension, then paste its ID here.":
