@@ -520,3 +520,4 @@ async def test_cookies_from_the_browser_get_past_a_gate(tmp_path):
         assert sha256(tmp_path / "gated.bin") == sha256(payload)
     finally:
         server.shutdown()
+        server.server_close()   # otherwise the listening socket leaks

@@ -224,11 +224,18 @@ def repair(extension_ids: list[str], key_prefix: str = "") -> dict[str, str]:
         current = status(key_prefix=key_prefix)
     except OSError:  # pragma: no cover - Windows only feature
         return {}
-    if any(current.values()):
+    # Per browser, not all-or-nothing. A leftover key for a browser that is
+    # not even installed - Chromium, Brave - would otherwise be taken as
+    # proof that everything is fine, while Chrome, Edge and Firefox stayed
+    # disconnected. That is exactly what happened on the first machine this
+    # ran on.
+    missing = [name for name, value in current.items() if not value]
+    if not missing:
         return {}
-    log.info("the native host registration was missing; writing it again")
+    log.info("native host registration missing for %s; writing it again",
+             ", ".join(missing))
     try:
-        return install(ids, key_prefix=key_prefix)
+        return install(ids, browsers=missing, key_prefix=key_prefix)
     except (ValueError, OSError) as exc:  # pragma: no cover - defensive
         log.warning("could not repair the registration: %s", exc)
         return {}

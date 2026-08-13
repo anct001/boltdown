@@ -469,6 +469,19 @@ def test_the_registration_is_rewritten_when_it_goes_missing(tmp_path):
         # Already registered: repair must not touch a working setup.
         assert register.repair(["b" * 32], key_prefix=prefix) == {}
         assert register.status(key_prefix=prefix)["edge"] == state["edge"]
+
+        # Only some of them missing - the case that actually happens, because
+        # a browser the user does not have keeps its key while the ones they
+        # do use lose theirs. An all-or-nothing check reads that leftover as
+        # "everything is fine" and repairs nothing.
+        register.uninstall(browsers=["chrome", "edge"], key_prefix=prefix)
+        assert register.status(key_prefix=prefix)["chrome"] is None
+        assert register.status(key_prefix=prefix)["brave"], "left as the decoy"
+
+        repaired = register.repair(["a" * 32], key_prefix=prefix)
+        assert set(repaired) == {"chrome", "edge"}, repaired
+        after = register.status(key_prefix=prefix)
+        assert all(after.values()), after
     finally:
         register.uninstall(key_prefix=prefix)
 
