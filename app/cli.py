@@ -76,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the available formats and exit",
     )
     media.add_argument(
+        "--playlist", action="store_true",
+        help="treat the URL as a playlist and download every video in it",
+    )
+    media.add_argument(
         "--ffmpeg", default=None, metavar="PATH",
         help="ffmpeg binary to use for merging and remuxing",
     )
@@ -113,6 +117,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--host-status", action="store_true",
         help="show which browsers know about the native messaging host",
     )
+    remote = parser.add_argument_group("remote control (talks to the running app)")
+    remote.add_argument(
+        "--remote-add", nargs="+", default=None, metavar="URL",
+        help="hand URLs to the running application instead of downloading here",
+    )
+    remote.add_argument(
+        "--remote-list", action="store_true", help="show what it is downloading",
+    )
+    remote.add_argument(
+        "--remote-pause", nargs="?", const="all", default=None, metavar="ID",
+        help="pause one download by id, or everything",
+    )
+    remote.add_argument(
+        "--remote-resume", nargs="?", const="all", default=None, metavar="ID",
+        help="resume one download by id, or everything",
+    )
+    remote.add_argument(
+        "--check-update", action="store_true",
+        help="ask GitHub whether a newer release exists",
+    )
     parser.add_argument("-q", "--quiet", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--version", action="version", version=f"idmclone {__version__}")
@@ -133,7 +157,7 @@ def _media_kind(url: str, args: argparse.Namespace):
     """None lets the request classify itself; `--video` forces yt-dlp."""
     from .media.detect import MediaKind, classify
 
-    if not (args.video or args.audio_only):
+    if not (args.video or args.audio_only or args.playlist):
         return None
     kind = classify(url)
     return MediaKind.SITE if kind is MediaKind.DIRECT else kind
@@ -201,6 +225,112 @@ def _browser_integration(args: argparse.Namespace) -> int:
         print(f"{browser:9} {value}")
     print("\nNow reload the extension in the browser.")
     return 0
+
+
+def _check_update() -> int:
+    """`--check-update`: report, never install."""
+    from .util import updates
+
+    newer = updates.check(__version__)
+    if newer is None:
+        print(f"idmclone {__version__} is the newest release I can see")
+        return 0
+    print(f"{newer.name} is available (you have {__version__})")
+    if newer.url:
+        print(newer.url)
+    if newer.has_installer:
+        size = newer.asset_size / 1048576
+        print(f"installer: {newer.asset_name} ({size:.1f} MB)")
+        print(f"  idmclone-cli \"{newer.asset_url}\"   # download it with this app")
+    return 0
+
+
+def _remote(args: argparse.Namespace) -> int:
+    """Drive the running GUI over the local IPC socket."""
+    from .ipc import endpoint
+    from .ipc.protocol import TYPE_DOWNLOAD, TYPE_LIST, TYPE_PAUSE, TYPE_RESUME
+
+    def send(message: dict) -> dict | None:
+        reply = endpoint.send(message)
+        if reply is None:
+            print("IDMClone is not running", file=sys.stderr)
+        return reply
+
+    if args.remote_list:
+        reply = send({"type": TYPE_LIST})
+        if reply is None:
+            return 1
+        if not reply.get("ok"):
+            print(reply.get("error", "refused"), file=sys.stderr)
+            return 1
+        rows = reply.get("downloads") or []
+        if not rows:
+            print("nothing in the list")
+            return 0
+        print(f"{'ID':>4}  {'STATE':<11} {'PROGRESS':>18}  {'SPEED':>11}  NAME")
+        for row in rows:
+            size = row.get("size") or 0
+            done = row.get("downloaded") or 0
+            progress = f"{human_size(done)}/{human_size(size)}" if size else human_size(done)
+            print(
+                f"{row['id']:>4}  {row['state']:<11} {progress:>18}  "
+                f"{human_speed(row.get('speed') or 0):>11}  {row['name']}"
+            )
+        return 0
+
+    if args.remote_add:
+        failed = False
+        for url in args.remote_add:
+            reply = send({"type": TYPE_DOWNLOAD, "url": url})
+            if reply is None:
+                return 1
+            print(f"{url}: {'accepted' if reply.get('ok') else reply.get('error')}")
+            failed = failed or not reply.get("ok")
+        return 1 if failed else 0
+
+    for value, kind in ((args.remote_pause, TYPE_PAUSE), (args.remote_resume, TYPE_RESUME)):
+        if value is None:
+            continue
+        message = {"type": kind}
+        if value != "all":
+            try:
+                message["id"] = int(value)
+            except ValueError:
+                print(f"not a download id: {value}", file=sys.stderr)
+                return 2
+        reply = send(message)
+        if reply is None:
+            return 1
+        print("ok" if reply.get("ok") else reply.get("error", "refused"))
+        return 0 if reply.get("ok") else 1
+    return 0
+
+
+def _expand_playlists(args: argparse.Namespace) -> list[str]:
+    """Replace playlist URLs with the URLs of the videos inside them."""
+    from .media import ytdlp
+
+    options = ytdlp.build_options(
+        proxy=args.proxy,
+        cookie=args.cookie,
+        referer=args.referer,
+        user_agent=args.user_agent,
+        verify_tls=not args.insecure,
+    )
+    urls: list[str] = []
+    for url in args.urls:
+        try:
+            playlist = ytdlp.extract_playlist_sync(url, options)
+        except Exception as exc:  # noqa: BLE001 - the message is the output
+            print(f"{url}: {exc}", file=sys.stderr)
+            continue
+        if playlist is None or not playlist.entries:
+            print(f"{url}: not a playlist", file=sys.stderr)
+            urls.append(url)
+            continue
+        print(f"{playlist.title}: {len(playlist.entries)} videos", file=sys.stderr)
+        urls.extend(entry.url for entry in playlist.entries)
+    return urls
 
 
 def _list_formats(args: argparse.Namespace) -> int:
@@ -295,6 +425,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.register_host or args.unregister_host or args.host_status:
         return _browser_integration(args)
+    if args.check_update:
+        return _check_update()
+    if (args.remote_add or args.remote_list or args.remote_pause
+            or args.remote_resume):
+        return _remote(args)
     if not args.urls:
         parser.error("no URLs given")
 
@@ -309,6 +444,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.list_formats:
         return _list_formats(args)
+
+    if args.playlist:
+        expanded = _expand_playlists(args)
+        if not expanded:
+            return 1
+        args.urls = expanded
 
     targets: list[tuple[str, str | None]] = [(url, args.referer) for url in args.urls]
     if args.grab:

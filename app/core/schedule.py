@@ -177,6 +177,26 @@ class Schedule:
     def already_ran(self, occurrence: datetime) -> bool:
         return self.last_run is not None and self.last_run >= occurrence.timestamp()
 
+    def covers(self, now: datetime) -> bool:
+        """True while `now` is inside today's window.
+
+        Used by the bandwidth schedule, where the question is not "should
+        something fire" but "which limit applies right this second".
+        """
+        if not self.enabled or self.start_time is None:
+            return False
+        for day in (now.date(), now.date() - ONE_DAY):
+            start = self.start_on(day)
+            if start is None or start > now:
+                continue
+            stop = self.stop_on(day)
+            if stop is None:
+                # No end time: the window is the rest of that day.
+                return day == now.date()
+            if now < stop:
+                return True
+        return False
+
     def next_start(self, now: datetime) -> datetime | None:
         """Next future occurrence, for display in the scheduler dialog."""
         if self.start_time is None or not self.days_mask:

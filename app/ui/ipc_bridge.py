@@ -13,7 +13,15 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal
 
 from .. import __version__
-from ..ipc.protocol import TYPE_DOWNLOAD, TYPE_MEDIA, TYPE_PING, TYPE_SHOW
+from ..ipc.protocol import (
+    TYPE_DOWNLOAD,
+    TYPE_LIST,
+    TYPE_MEDIA,
+    TYPE_PAUSE,
+    TYPE_PING,
+    TYPE_RESUME,
+    TYPE_SHOW,
+)
 from ..util.log import get_logger
 
 log = get_logger(__name__)
@@ -22,6 +30,15 @@ log = get_logger(__name__)
 class IpcBridge(QObject):
     downloadRequested = Signal(dict)
     showRequested = Signal(dict)
+    #: control messages from `idmclone-cli --remote-*`, answered synchronously
+    controlRequested = Signal(dict)
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        #: set by the window: answers "what is downloading right now?"
+        self.snapshot = None
+        #: set by the window: (action, db_id or None) -> bool
+        self.control = None
 
     def handle(self, message: dict[str, Any]) -> dict[str, Any]:
         kind = message.get("type")
@@ -36,6 +53,20 @@ class IpcBridge(QObject):
             log.info("captured %s from the browser: %s", kind, url)
             self.downloadRequested.emit(message)
             return {"ok": True, "accepted": url}
+
+        if kind == TYPE_LIST:
+            # Answering needs controller state, so the window installs a
+            # callback; without one the CLI gets an honest "not available".
+            if self.snapshot is None:
+                return {"ok": False, "error": "the application is still starting"}
+            return {"ok": True, "downloads": self.snapshot()}
+
+        if kind in (TYPE_PAUSE, TYPE_RESUME):
+            if self.control is None:
+                return {"ok": False, "error": "the application is still starting"}
+            target = message.get("id")
+            done = self.control(kind, int(target) if target is not None else None)
+            return {"ok": bool(done)}
 
         if kind == TYPE_SHOW:
             self.showRequested.emit(message)

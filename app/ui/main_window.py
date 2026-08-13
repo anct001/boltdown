@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
+from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -31,7 +33,7 @@ from ..core.schedule import PostAction
 from ..core.task import TaskState
 from ..media.detect import classify
 from ..storage.settings import Settings
-from ..util import power
+from ..util import postprocess, power
 from ..util.fmt import human_speed
 from . import icons, theme
 from .add_url_dialog import AddUrlDialog
@@ -43,11 +45,13 @@ from .dropbox import DropBox
 from .grabber_dialog import GrabberDialog
 from .history_dialog import HistoryDialog
 from .i18n import tr
+from .playlist_dialog import PlaylistDialog
 from .profiles_dialog import SiteProfilesDialog
 from .progress_dialog import ProgressDialog, _open_path
 from .queue_dialog import SchedulerDialog
 from .scheduler import QueueScheduler
 from .settings_dialog import SettingsDialog
+from .stats_dialog import StatsDialog
 from .task_model import (
     COL_ADDED,
     COL_STATUS,
@@ -70,6 +74,9 @@ _ACTION_LABELS = {
 
 
 class MainWindow(QMainWindow):
+    #: post-processing runs on a worker thread and reports back through this
+    _postDone = Signal(str, str)
+
     def __init__(self, controller: Controller, settings: Settings) -> None:
         super().__init__()
         self.controller = controller
@@ -77,6 +84,8 @@ class MainWindow(QMainWindow):
         self.tray = None
         self._force_quit = False
         self._progress_dialogs: dict[int, ProgressDialog] = {}
+        #: ids already handled, so one finished download is announced once
+        self._finished: set[int] = set()
 
         self.setWindowTitle("IDMClone")
         self.setWindowIcon(icons.app_icon())
@@ -109,6 +118,7 @@ class MainWindow(QMainWindow):
         if settings.get("dropbox_visible"):
             self.toggle_dropbox(True)
 
+        self._postDone.connect(self._notify, Qt.QueuedConnection)
         controller.itemChanged.connect(self._on_item_changed)
         controller.queuesChanged.connect(self._rebuild_queue_nodes)
         self._update_action_states()
@@ -149,8 +159,14 @@ class MainWindow(QMainWindow):
         self.action_batch.setShortcut(QKeySequence("Ctrl+Shift+N"))
         self.action_batch.triggered.connect(self.open_batch)
 
+        self.action_playlist = QAction(icons.batch_icon(), tr("Playlist"), self)
+        self.action_playlist.triggered.connect(self.open_playlist)
+
         self.action_history = QAction(icons.history_icon(), tr("History"), self)
         self.action_history.triggered.connect(self.open_history)
+
+        self.action_stats = QAction(icons.clock_icon(), tr("Statistics"), self)
+        self.action_stats.triggered.connect(self.open_stats)
 
         self.action_profiles = QAction(icons.globe_icon(), tr("Site rules"), self)
         self.action_profiles.triggered.connect(self.open_profiles)
@@ -194,9 +210,11 @@ class MainWindow(QMainWindow):
         file_menu = menu.addMenu(tr("File"))
         file_menu.addAction(self.action_add)
         file_menu.addAction(self.action_batch)
+        file_menu.addAction(self.action_playlist)
         file_menu.addAction(self.action_paste)
         file_menu.addSeparator()
         file_menu.addAction(self.action_history)
+        file_menu.addAction(self.action_stats)
         file_menu.addSeparator()
         file_menu.addAction(self.action_exit)
 
@@ -309,7 +327,38 @@ class MainWindow(QMainWindow):
         dialog = AddUrlDialog(self.settings, url=url or "", parent=self)
         if dialog.exec() != AddUrlDialog.DialogCode.Accepted:
             return
-        self.controller.add(**dialog.options())
+        options = dialog.options()
+        if not self._confirm_duplicate(options["url"]):
+            return
+        self.controller.add(**options)
+
+    def _confirm_duplicate(self, url: str) -> bool:
+        """Warn when this URL is already in the list or the history."""
+        existing = next((i for i in self.controller.items() if i.url == url), None)
+        if existing is not None:
+            answer = QMessageBox.question(
+                self, tr("Add a download"),
+                "\n\n".join([
+                    tr("This URL is already in the list."),
+                    existing.filename,
+                    tr("Add it again?"),
+                ]),
+            )
+            return answer == QMessageBox.StandardButton.Yes
+        past = self.controller.db.list_history(url, limit=5)
+        match = next((row for row in past if row["url"] == url), None)
+        if match is None:
+            return True
+        when = datetime.fromtimestamp(match["finished_at"] or 0).strftime("%d/%m/%Y")
+        answer = QMessageBox.question(
+            self, tr("Add a download"),
+            "\n\n".join([
+                tr("You downloaded this before."),
+                f"{match['filename']} - {when}",
+                tr("Add it again?"),
+            ]),
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def paste_url(self) -> None:
         text = (QGuiApplication.clipboard().text() or "").strip()
@@ -350,8 +399,14 @@ class MainWindow(QMainWindow):
     def open_batch(self) -> None:
         BatchDialog(self.controller, self.settings, self).exec()
 
+    def open_playlist(self, url: str = "") -> None:
+        PlaylistDialog(self.controller, self.settings, url or "", self).exec()
+
     def open_history(self) -> None:
         HistoryDialog(self.controller, self.controller.db, self).exec()
+
+    def open_stats(self) -> None:
+        StatsDialog(self.controller.db, self).exec()
 
     def open_profiles(self) -> None:
         SiteProfilesDialog(self.controller, self.controller.db, self).exec()
@@ -487,6 +542,37 @@ class MainWindow(QMainWindow):
             self.controller.add(**options)
             self._notify(tr("Downloading video") if media else tr("Add URL"), url)
 
+    def remote_snapshot(self) -> list[dict]:
+        """What `idmclone-cli --remote-list` prints."""
+        return [
+            {
+                "id": item.db_id,
+                "name": item.filename,
+                "state": item.state.value,
+                "size": item.size,
+                "downloaded": item.downloaded,
+                "speed": item.speed,
+                "url": item.url,
+            }
+            for item in self.controller.items()
+        ]
+
+    def remote_control(self, action: str, db_id: int | None) -> bool:
+        """Pause or resume one download, or everything when `db_id` is None."""
+        if action == "pause":
+            if db_id is None:
+                self.controller.pause_all()
+            else:
+                self.controller.pause_item(db_id)
+            return True
+        if action == "resume":
+            if db_id is None:
+                self.controller.resume_all()
+            else:
+                self.controller.start_item(db_id)
+            return True
+        return False
+
     def handle_ipc_show(self, message: dict) -> None:
         for url in message.get("urls", []) or []:
             if isinstance(url, str) and url.startswith(("http://", "https://")):
@@ -563,6 +649,38 @@ class MainWindow(QMainWindow):
 
     def _on_item_changed(self, item: DownloadItem) -> None:
         self._update_action_states()
+        if item.state is TaskState.COMPLETED and item.db_id not in self._finished:
+            self._finished.add(item.db_id)
+            self._on_download_finished(item)
+
+    def _on_download_finished(self, item: DownloadItem) -> None:
+        """Notify, then run whatever post-processing is switched on."""
+        if self.settings.get("notify_on_finish"):
+            self._notify(tr("Download finished"), item.filename)
+        wants_extract = (
+            self.settings.get("auto_extract") and postprocess.is_archive(item.path)
+        )
+        wants_scan = self.settings.get("scan_with_defender")
+        if not (wants_extract or wants_scan):
+            return
+
+        path = item.path
+        name = item.filename
+
+        def work() -> None:
+            if wants_scan:
+                result = postprocess.scan(path)
+                if not result.ok:
+                    self._postDone.emit(tr("Defender"), f"{name}: {result.detail}")
+                    return
+            if wants_extract:
+                result = postprocess.extract(path)
+                message = result.detail if result.ok else f"{name}: {result.detail}"
+                self._postDone.emit(
+                    tr("Unpacked") if result.ok else tr("Could not unpack"), message
+                )
+
+        threading.Thread(target=work, name=f"post-{item.db_id}", daemon=True).start()
 
     def _update_action_states(self, *_args) -> None:
         items = self._selected_items()

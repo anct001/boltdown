@@ -55,6 +55,7 @@ class QueueScheduler(QObject):
         self._timer = QTimer(self)
         self._timer.setInterval(TICK_MS)
         self._timer.timeout.connect(self.tick)
+        self._applied_limit: int | None = -1  # -1 = nothing applied yet
         controller.queueFinished.connect(self._on_queue_finished)
 
     # ------------------------------------------------------------- lifecycle
@@ -71,8 +72,40 @@ class QueueScheduler(QObject):
     def schedules(self) -> list[Schedule]:
         return [schedule_from_row(row) for row in self.db.list_schedules()]
 
+    def bandwidth_schedule(self) -> tuple[Schedule, int | None] | None:
+        """The saved "slow down between these hours" rule, if any."""
+        saved = self.controller.settings.get("bandwidth_schedule")
+        if not isinstance(saved, dict) or not saved.get("start"):
+            return None
+        schedule = Schedule(
+            enabled=bool(saved.get("enabled", True)),
+            start_at=saved.get("start"),
+            stop_at=saved.get("stop"),
+            days_mask=int(saved.get("days", 127)),
+        )
+        limit = saved.get("limit")
+        return schedule, int(limit) if limit else None
+
+    def apply_bandwidth(self, now: datetime) -> int | None:
+        """Set the global speed limit for this moment; returns what was applied.
+
+        Outside the window the user's normal limit comes back, so the rule is
+        a temporary override rather than a second setting to keep in sync.
+        """
+        pair = self.bandwidth_schedule()
+        if pair is None:
+            return None
+        schedule, limit = pair
+        wanted = limit if schedule.covers(now) else self.controller.settings.speed_limit
+        if wanted != self._applied_limit:
+            log.info("bandwidth schedule: limit is now %s", wanted or "unlimited")
+            self.controller.engine.set_speed_limit(wanted)
+            self._applied_limit = wanted
+        return wanted
+
     def tick(self, now: datetime | None = None) -> None:
         now = now or datetime.now()
+        self.apply_bandwidth(now)
         for schedule in self.schedules():
             if schedule.queue_id is None:
                 continue

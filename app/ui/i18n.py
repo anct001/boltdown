@@ -266,6 +266,36 @@ _VI: dict[str, str] = {
     "Scan finished files with Defender": "Quét tệp bằng Defender sau khi tải",
     "Continue unfinished downloads at start": "Mở app là tải tiếp các mục dở",
     "Notify when a download finishes": "Báo khi tải xong",
+    # statistics and bandwidth
+    "Statistics": "Thống kê",
+    "Files downloaded:": "Số tệp đã tải:",
+    "Total size:": "Tổng dung lượng:",
+    "Average file:": "Trung bình mỗi tệp:",
+    "Per day:": "Mỗi ngày:",
+    "Since:": "Từ ngày:",
+    "Largest:": "Lớn nhất:",
+    "Last 30 days": "30 ngày gần nhất",
+    "No downloads yet": "Chưa có lượt tải nào",
+    "Bandwidth window": "Khung giờ giới hạn",
+    "Limit the speed between:": "Giới hạn tốc độ trong khoảng:",
+    "Outside the window your normal limit comes back.":
+        "Ngoài khung giờ này thì quay lại giới hạn thường ngày.",
+    # after a download
+    "Download finished": "Đã tải xong",
+    "This URL is already in the list.": "URL này đã có trong danh sách.",
+    "You downloaded this before.": "Bạn đã từng tải cái này.",
+    "Add it again?": "Vẫn thêm lần nữa?",
+    "Unpacked": "Đã giải nén",
+    "Could not unpack": "Không giải nén được",
+    "Defender": "Defender",
+    # playlist
+    "Playlist": "Danh sách phát",
+    "List videos": "Liệt kê video",
+    "Listing...": "Đang liệt kê...",
+    "{n} videos": "{n} video",
+    "That URL is a single video, not a playlist.":
+        "URL này là một video lẻ, không phải danh sách phát.",
+    "Uploader": "Kênh",
     # site rules
     "Site rules": "Quy tắc theo trang",
     "Host:": "Tên miền:",

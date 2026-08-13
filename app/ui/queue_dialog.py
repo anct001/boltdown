@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QGridLayout,
+    QLineEdit,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -30,13 +31,27 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.schedule import DAY_NAMES, EVERY_DAY, PostAction, Schedule, days_of, mask_for
+from ..core.schedule import (
+    DAY_NAMES,
+    EVERY_DAY,
+    PostAction,
+    Schedule,
+    days_of,
+    mask_for,
+    parse_hhmm,
+)
+from ..util.fmt import human_size, parse_size
 from ..storage.db import Database
 from .controller import Controller
 from .i18n import tr
 from .scheduler import schedule_from_row
 
 QUEUE_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+def _hhmm(value: str | None, fallback: tuple[int, int]) -> tuple[int, int]:
+    parsed = parse_hhmm(value)
+    return (parsed.hour, parsed.minute) if parsed else fallback
 
 ACTIONS: list[tuple[str, PostAction]] = [
     ("Do nothing", PostAction.NONE),
@@ -77,7 +92,11 @@ class SchedulerDialog(QDialog):
 
         body = QHBoxLayout()
         body.addLayout(left, 1)
-        body.addWidget(self.panel, 2)
+        right = QVBoxLayout()
+        right.addWidget(self.panel)
+        right.addWidget(self._build_bandwidth())
+        right.addStretch(1)
+        body.addLayout(right, 2)
 
         self.start_button = QPushButton(tr("Start now"))
         self.start_button.clicked.connect(self.start_queue)
@@ -146,6 +165,52 @@ class SchedulerDialog(QDialog):
         grid.addWidget(QLabel(tr("Next run:")), 6, 0)
         grid.addWidget(self.next_run, 6, 1)
         return panel
+
+    def _build_bandwidth(self) -> QWidget:
+        """A global "go slow between these hours" rule, separate from queues."""
+        box = QGroupBox(tr("Bandwidth window"))
+        saved = self.controller.settings.get("bandwidth_schedule") or {}
+        self.bw_enabled = QCheckBox(tr("Limit the speed between:"))
+        self.bw_enabled.setChecked(bool(saved.get("enabled")))
+        self.bw_start = QTimeEdit(QTime(*_hhmm(saved.get("start"), (8, 0))))
+        self.bw_start.setDisplayFormat("HH:mm")
+        self.bw_stop = QTimeEdit(QTime(*_hhmm(saved.get("stop"), (18, 0))))
+        self.bw_stop.setDisplayFormat("HH:mm")
+        self.bw_limit = QLineEdit(
+            human_size(saved["limit"]).replace(" ", "") if saved.get("limit") else ""
+        )
+        self.bw_limit.setPlaceholderText(tr("unlimited"))
+
+        row = QHBoxLayout()
+        row.addWidget(self.bw_start)
+        row.addWidget(QLabel("-"))
+        row.addWidget(self.bw_stop)
+        row.addStretch(1)
+
+        grid = QGridLayout(box)
+        grid.addWidget(self.bw_enabled, 0, 0, 1, 2)
+        grid.addLayout(row, 1, 0, 1, 2)
+        grid.addWidget(QLabel(tr("Speed limit:")), 2, 0)
+        grid.addWidget(self.bw_limit, 2, 1)
+        note = QLabel(tr("Outside the window your normal limit comes back."))
+        note.setWordWrap(True)
+        note.setEnabled(False)
+        grid.addWidget(note, 3, 0, 1, 2)
+        return box
+
+    def save_bandwidth(self) -> None:
+        try:
+            limit = parse_size(self.bw_limit.text().strip()) if self.bw_limit.text().strip() else None
+        except ValueError:
+            QMessageBox.warning(self, tr("Scheduler"), tr("Speed limit:"))
+            return
+        self.controller.settings.set("bandwidth_schedule", {
+            "enabled": self.bw_enabled.isChecked(),
+            "start": self.bw_start.time().toString("HH:mm"),
+            "stop": self.bw_stop.time().toString("HH:mm"),
+            "limit": limit,
+            "days": EVERY_DAY,
+        })
 
     # ----------------------------------------------------------------- state
 
@@ -268,6 +333,7 @@ class SchedulerDialog(QDialog):
             self.reload()
 
     def save_current(self) -> None:
+        self.save_bandwidth()
         queue_id = self.current_queue_id()
         if queue_id is None:
             return

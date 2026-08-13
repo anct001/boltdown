@@ -27,6 +27,9 @@ TYPE_PING = "ping"
 TYPE_DOWNLOAD = "download"
 TYPE_MEDIA = "media"
 TYPE_SHOW = "show"
+TYPE_LIST = "list"
+TYPE_PAUSE = "pause"
+TYPE_RESUME = "resume"
 
 STREAMING_EXTENSIONS = (".m3u8", ".mpd")
 

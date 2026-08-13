@@ -297,6 +297,29 @@ Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thư�
   theo — `MainWindow.refresh_icons()` vẽ lại toàn bộ, kể cả icon từng danh mục
   ở cây bên trái.
 
+## 10e. Mở rộng theo yêu cầu người dùng (P8)
+
+Mười lăm mục người dùng chọn, gom thành tám nhóm:
+
+- **Quy tắc theo trang** (`app/core/profiles.py`, schema v4) — khớp hẹp nhất
+  thắng; quy tắc chỉ điền vào ô còn trống nên lựa chọn của từng lượt tải luôn
+  thắng. Chính là biện pháp mục 12 đã nêu mà trước giờ chưa làm.
+- **Portable / danh mục sửa được / tự tải tiếp khi mở app** — cờ portable là một
+  *tệp* chứ không phải thiết lập, vì thiết lập lại nằm trong đúng thư mục mà cờ
+  đó quyết định.
+- **Proxy & cookie** — SOCKS5 qua `httpx[socks]`, proxy hệ thống đọc từ WinINET,
+  PAC chỉ bóc literal và **tự đánh dấu là phỏng đoán**; cookie Chrome/Edge giải
+  bằng DPAPI + AES-256-GCM, chép tệp ra trước vì trình duyệt khoá nó.
+- **Playlist** — `extract_flat` để một kênh 200 video chỉ tốn một request.
+- **Hậu tải xuống** — cảnh báo trùng (dùng lại bảng history), thông báo, giải
+  nén có chặn zip-slip, quét Defender; tất cả trên luồng nền.
+- **Khung giờ giới hạn + thống kê** — dùng lại `Schedule.covers()`; thống kê chỉ
+  là truy vấn trên history, không đẻ thêm sổ sách.
+- **Điều khiển từ xa + kiểm tra cập nhật** — CLI nói chuyện với app đang chạy qua
+  IPC có sẵn; so sánh phiên bản bằng tuple số để `0.10.0 > 0.9.0`.
+- **Extension** — menu chuột phải cho link/ảnh/video/trang/vùng bôi đen, và "tải
+  mọi link trên trang" qua `chrome.scripting`.
+
 ## 11. Lộ trình theo giai đoạn
 
 | Giai đoạn | Nội dung | Kết quả kiểm chứng được |
@@ -308,6 +331,7 @@ Tiến độ chi tiết từng đoạn **không** lưu trong DB (ghi quá thư�
 | **P4** — Video ✅ | yt-dlp adapter + HLS parser + ffmpeg merge | Tải 1 video YouTube và 1 stream m3u8, phát được |
 | **P5** — Nâng cao ✅ | Scheduler/hàng đợi, Site Grabber, đa ngôn ngữ, hành động sau khi xong | Hẹn giờ tải lúc 2h sáng, grab toàn bộ ảnh 1 site |
 | **P6** — Phát hành ✅ | PyInstaller + Inno Setup, auto-start, tài liệu | Chạy installer trên máy sạch, hoạt động ngay |
+| **P8** — Mở rộng ✅ | Quy tắc theo trang, playlist, proxy SOCKS5/PAC, cookie trình duyệt, thống kê, khung giờ giới hạn, hậu xử lý, CLI điều khiển, menu chuột phải | `--remote-list` thấy đúng mục đang tải; quy tắc `*.example.com` áp đúng số kết nối |
 | **P7** — Giao diện & tiện ích ✅ | Theme riêng sáng/tối, bắt link clipboard, thêm hàng loạt có mẫu, lịch sử + checksum, hộp thả nổi | Copy link là app hỏi tải; dán mẫu `[001-024]` ra đúng 24 URL |
 
 ## 12. Rủi ro & phương án

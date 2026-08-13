@@ -74,6 +74,10 @@ def main(argv: list[str] | None = None) -> int:
     bridge = IpcBridge()
     bridge.downloadRequested.connect(window.handle_ipc_download)
     bridge.showRequested.connect(window.handle_ipc_show)
+    # Read-only view and control, for `idmclone-cli --remote-*`. Both run on
+    # the IPC thread, so they only touch the controller's plain data.
+    bridge.snapshot = window.remote_snapshot
+    bridge.control = window.remote_control
     server = endpoint.IpcServer(bridge.handle)
     try:
         server.start()

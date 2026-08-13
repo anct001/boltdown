@@ -113,6 +113,34 @@ class MediaInfo:
 
 
 @dataclass(slots=True)
+class PlaylistEntry:
+    """One video inside a playlist, before anything is extracted in full."""
+
+    url: str
+    title: str
+    index: int = 0
+    duration: float | None = None
+    uploader: str = ""
+
+    @property
+    def label(self) -> str:
+        if self.duration:
+            minutes, seconds = divmod(int(self.duration), 60)
+            return f"{self.title}  ({minutes}:{seconds:02d})"
+        return self.title
+
+
+@dataclass(slots=True)
+class Playlist:
+    title: str
+    url: str
+    entries: list[PlaylistEntry] = field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.entries)
+
+
+@dataclass(slots=True)
 class DownloadPlan:
     """What the media runner should actually fetch."""
 
@@ -150,6 +178,62 @@ def _track_from(fmt: dict[str, Any]) -> Track | None:
         note=str(fmt.get("format_note") or ""),
         headers=dict(fmt.get("http_headers") or {}),
     )
+
+
+def playlist_from_dict(data: dict[str, Any]) -> Playlist | None:
+    """A playlist listing, or None when the URL was a single video."""
+    if data.get("_type") != "playlist":
+        return None
+    entries = []
+    for position, entry in enumerate(data.get("entries") or [], start=1):
+        if not entry:
+            continue
+        url = entry.get("url") or entry.get("webpage_url") or entry.get("original_url")
+        if not url:
+            continue
+        entries.append(PlaylistEntry(
+            url=url,
+            title=str(entry.get("title") or f"#{position}"),
+            index=position,
+            duration=entry.get("duration"),
+            uploader=str(entry.get("uploader") or ""),
+        ))
+    return Playlist(
+        title=str(data.get("title") or "playlist"),
+        url=str(data.get("webpage_url") or data.get("original_url") or ""),
+        entries=entries,
+    )
+
+
+def extract_playlist_sync(url: str, options: dict[str, Any] | None = None) -> Playlist | None:
+    """List a playlist without resolving every video's formats.
+
+    `extract_flat` is the difference between one request and one request *per
+    video* - a 200-video channel would otherwise take minutes before the user
+    sees anything to pick from.
+    """
+    try:
+        from yt_dlp import YoutubeDL
+        from yt_dlp.utils import DownloadError as YtDownloadError
+    except ImportError as exc:
+        raise YtDlpMissing() from exc
+
+    opts = dict(options or build_options())
+    opts.update({"noplaylist": False, "extract_flat": "in_playlist", "skip_download": True})
+    try:
+        with YoutubeDL(opts) as ydl:
+            data = ydl.extract_info(url, download=False)
+    except YtDownloadError as exc:
+        raise ExtractionError(str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - extractors raise anything
+        raise ExtractionError(f"{type(exc).__name__}: {exc}") from exc
+    if not data:
+        raise ExtractionError("yt-dlp returned no information")
+    return playlist_from_dict(data)
+
+
+async def extract_playlist(url: str, options: dict[str, Any] | None = None) -> Playlist | None:
+    return await asyncio.to_thread(extract_playlist_sync, url, options)
 
 
 def info_from_dict(data: dict[str, Any]) -> MediaInfo:

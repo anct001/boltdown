@@ -296,3 +296,103 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   );
   return true; // keep the channel open for the async reply
 });
+
+// ------------------------------------------------------------ context menus
+
+/**
+ * Right-click entries. IDM's most-used feature after link capture: you see a
+ * link, you send it without navigating to it first.
+ */
+const MENUS = [
+  { id: "idmclone-link", title: "Tải link này bằng IDMClone", contexts: ["link"] },
+  { id: "idmclone-media", title: "Tải media này bằng IDMClone",
+    contexts: ["image", "video", "audio"] },
+  { id: "idmclone-page", title: "Tải mọi link trên trang này", contexts: ["page"] },
+  { id: "idmclone-selection", title: "Tải các link vừa bôi đen",
+    contexts: ["selection"] }
+];
+
+function buildMenus() {
+  chrome.contextMenus.removeAll(() => {
+    for (const item of MENUS) chrome.contextMenus.create(item);
+  });
+}
+
+chrome.runtime.onInstalled.addListener(buildMenus);
+chrome.runtime.onStartup.addListener(buildMenus);
+
+/** Collect every href on the page (or inside the selection). */
+function collectLinks(selectionOnly) {
+  const anchors = Array.from(document.querySelectorAll("a[href]"));
+  const wanted = anchors.filter((a) => {
+    if (!/^https?:/i.test(a.href)) return false;
+    if (!selectionOnly) return true;
+    const selection = window.getSelection();
+    return selection && selection.rangeCount > 0 && selection.containsNode(a, true);
+  });
+  return Array.from(new Set(wanted.map((a) => a.href)));
+}
+
+async function linksOnPage(tabId, selectionOnly) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: collectLinks,
+    args: [Boolean(selectionOnly)]
+  });
+  return (results && results[0] && results[0].result) || [];
+}
+
+async function sendMany(urls, referer) {
+  let sent = 0;
+  for (const url of urls) {
+    const response = await sendNative({
+      type: "download",
+      url,
+      referer,
+      cookie: await cookieHeader(url),
+      user_agent: navigator.userAgent
+    });
+    if (response.ok) sent += 1;
+    else {
+      notify("IDMClone", response.error || "unknown error");
+      break;
+    }
+  }
+  return sent;
+}
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  const settings = await getSettings();
+  if (!settings.enabled) {
+    notify("IDMClone", "Tiện ích đang tắt trong popup.");
+    return;
+  }
+  const referer = (tab && tab.url) || info.pageUrl;
+
+  if (info.menuItemId === "idmclone-link" && info.linkUrl) {
+    await sendMany([info.linkUrl], referer);
+    return;
+  }
+  if (info.menuItemId === "idmclone-media" && (info.srcUrl || info.linkUrl)) {
+    await sendMany([info.srcUrl || info.linkUrl], referer);
+    return;
+  }
+  if (!tab || tab.id === undefined) return;
+
+  // Whole page or just the selection: read the links out of the DOM, hand
+  // them over one at a time so a failure stops at the first one.
+  const selectionOnly = info.menuItemId === "idmclone-selection";
+  let urls = [];
+  try {
+    urls = await linksOnPage(tab.id, selectionOnly);
+  } catch (error) {
+    notify("IDMClone", `Không đọc được trang: ${error}`);
+    return;
+  }
+  if (!urls.length) {
+    notify("IDMClone", "Không thấy link nào.");
+    return;
+  }
+  const sent = await sendMany(urls, referer);
+  notify("IDMClone", `Đã gửi ${sent}/${urls.length} link sang IDMClone.`);
+});

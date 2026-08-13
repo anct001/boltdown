@@ -2,10 +2,12 @@
 
 Trình quản lý tải xuống đa luồng cho Windows, tính năng hướng theo Internet Download Manager.
 
-**Trạng thái: P0 → P7 hoàn thành** — engine lõi, giao diện đồ hoạ, tích hợp
+**Trạng thái: P0 → P8 hoàn thành** — engine lõi, giao diện đồ hoạ, tích hợp
 trình duyệt, tải video streaming, hàng đợi/hẹn giờ, Site Grabber, bản đóng gói
 cho Windows, và bản nâng cấp giao diện kèm bắt link clipboard / thêm hàng loạt /
-lịch sử / checksum / hộp thả nổi. Lộ trình đầy đủ ở [docs/PLAN.md](docs/PLAN.md).
+lịch sử / checksum / hộp thả nổi, và P8 với quy tắc theo trang, playlist,
+proxy SOCKS5, nhập cookie, thống kê, điều khiển từ dòng lệnh. Lộ trình đầy
+đủ ở [docs/PLAN.md](docs/PLAN.md).
 
 ![Cửa sổ chính](docs/screenshots/main-window.png)
 
@@ -207,6 +209,57 @@ so — chấp nhận cả kiểu `<hash>  <tên tệp>` copy thẳng từ file `
 từ trình duyệt thả vào là tải, không cần alt-tab. Kéo chính nó để đổi chỗ (vị trí
 được nhớ lại), nhấp đúp để mở cửa sổ chính, chuột phải để ẩn.
 
+## Quy tắc theo trang
+
+**Tuỳ chọn → Quy tắc theo trang** ghi sẵn cách cư xử với từng tên miền: số kết
+nối, giới hạn tốc độ, User-Agent, Referer, Cookie, proxy. Mẫu khớp là
+`example.com`, `*.example.com` hoặc `*`, và **khớp hẹp nhất thắng** — đặt một
+luật chung rồi sửa riêng cho một host khó tính. Ô để trống thì không đụng tới;
+giá trị gõ cho từng lượt tải luôn thắng quy tắc.
+
+Đây là cách xử lý thực tế khi một CDN trả 403 lúc mở quá 4 kết nối trong khi
+chỗ khác cho 16.
+
+## Playlist và kênh video
+
+**Tệp → Danh sách phát**: dán link playlist/kênh, bấm *Liệt kê video*, tick
+những video muốn tải, tất cả vào chung một hàng đợi. Bản liệt kê dùng
+`extract_flat` nên kênh 200 video vẫn hiện ra sau **một** request chứ không
+phải 200. Dòng lệnh: `--playlist`.
+
+## Proxy, cookie và vài thứ nhỏ
+
+- **SOCKS5**: gõ `socks5://127.0.0.1:1080` vào ô Proxy. **Dùng thiết lập proxy
+  của Windows** thì đọc thẳng WinINET; gặp tệp PAC thì app chỉ bóc các dòng
+  `PROXY host:port` — đánh giá đúng `FindProxyForURL` cần cả một máy JavaScript,
+  nên chỗ này ghi rõ là *phỏng đoán* chứ không giả vờ chính xác.
+- **Lấy cookie từ trình duyệt**: nút cạnh ô Cookie đọc cookie của đúng tên miền
+  đó từ Chrome/Edge/Brave (khoá AES qua DPAPI, giá trị AES-256-GCM). Chỉ tài
+  khoản Windows hiện tại giải được hồ sơ của chính mình.
+- **Danh mục sửa được**: **Tuỳ chọn → Danh mục**, mỗi dòng `Tên = đuôi, đuôi`.
+- **Chế độ portable**: đặt tệp rỗng tên `idmclone.portable` cạnh exe, dữ liệu và
+  cấu hình chuyển vào thư mục `data` bên cạnh chương trình.
+- **Sau khi tải xong**: tuỳ chọn tự giải nén (chặn đường dẫn thoát khỏi thư mục)
+  và quét bằng Microsoft Defender; thêm URL đã tải rồi thì app hỏi lại trước.
+
+## Thống kê
+
+**Tệp → Thống kê** đọc thẳng bảng `history`: tổng dung lượng, trung bình mỗi
+tệp, trung bình mỗi ngày, tệp lớn nhất, kèm biểu đồ 30 ngày. Không có sổ sách
+riêng nào để lệch.
+
+## Điều khiển từ dòng lệnh
+
+Khi app đang chạy, `idmclone-cli` nói chuyện với nó qua socket IPC sẵn có:
+
+```bash
+idmclone-cli --remote-add "https://example.com/file.zip"
+idmclone-cli --remote-list
+idmclone-cli --remote-pause 3      # bỏ số để dừng tất cả
+idmclone-cli --remote-resume
+idmclone-cli --check-update
+```
+
 ## Hàng đợi và hẹn giờ
 
 **Hẹn giờ** (`Ctrl` không cần, bấm nút trên thanh công cụ) mở cửa sổ quản lý hàng
@@ -231,6 +284,10 @@ Ba quy tắc đáng nhớ:
 
 Trước khi tắt máy, app đếm ngược 30 giây và cho bấm huỷ; lệnh tắt máy chỉ chạy
 sau khoảng đó (`app/util/power.py`).
+
+Cùng cửa sổ đó còn có **Khung giờ giới hạn**: bóp tốc độ trong giờ làm việc,
+hết khung là tự trả lại giới hạn thường ngày — một lớp đè tạm thời, không
+phải thiết lập thứ hai phải nhớ đồng bộ.
 
 ## Site Grabber
 
@@ -446,7 +503,7 @@ Tám điểm thiết kế đáng chú ý:
 .venv/Scripts/python -m pytest -q
 ```
 
-342 test, khoảng 90 giây. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
+418 test, khoảng 50 giây. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
 cầu (bỏ qua `Range`, chặn `HEAD`, ngắt kết nối giữa chừng, trả 503, đổi `ETag`,
 không gửi `Content-Length`) — xem `tests/server.py`. Phần giao diện chạy headless qua
 Qt platform `offscreen`, kể cả kiểm tra vẽ biểu đồ và thanh segment. Phần trình duyệt

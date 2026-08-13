@@ -5,15 +5,20 @@
   "description": "Send browser downloads and media links to the IDMClone download manager.",
   "minimum_chrome_version": "116",
   "permissions": [
-    "downloads",
+    "contextMenus",
     "cookies",
+    "downloads",
+    "nativeMessaging",
+    "notifications",
+    "scripting",
     "storage",
     "tabs",
-    "webRequest",
-    "nativeMessaging",
-    "notifications"
+    "webRequest"
   ],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -27,8 +32,13 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     }
