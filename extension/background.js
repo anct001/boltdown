@@ -149,14 +149,6 @@ async function takeOver(item, suggestedName) {
   }
 
   const url = item.finalUrl || item.url;
-  try {
-    await chrome.downloads.cancel(item.id);
-    await chrome.downloads.erase({ id: item.id });
-  } catch (error) {
-    // Small files can finish before we get here; nothing to take over then.
-    return;
-  }
-
   const payload = {
     type: "download",
     url,
@@ -168,9 +160,28 @@ async function takeOver(item, suggestedName) {
     mime: item.mime || undefined
   };
 
+  // Ask *before* cancelling. The other order loses the download outright when
+  // the app cannot be reached - which is what happens after the application is
+  // reinstalled, since the uninstaller removes the native-messaging
+  // registration. The browser writing a few hundred kilobytes we then throw
+  // away is a far smaller price than a download that simply does not happen.
   const response = await sendNative(payload);
   if (!response.ok) {
-    notify("Boltdown", `Could not hand over the download: ${response.error}`);
+    handled.delete(item.id);
+    notify(
+      "Boltdown",
+      `Could not hand over the download - the browser will fetch it: ${response.error}`
+    );
+    return;
+  }
+
+  try {
+    await chrome.downloads.cancel(item.id);
+    await chrome.downloads.erase({ id: item.id });
+  } catch (error) {
+    // Small files can finish before we get here. The app has the URL and will
+    // download it too; the browser's copy is the duplicate, and the app's
+    // duplicate check is what deals with that.
   }
 }
 

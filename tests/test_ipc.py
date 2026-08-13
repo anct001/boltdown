@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -400,3 +402,77 @@ def test_the_extension_folder_can_be_found_from_a_checkout():
     chrome = register.extension_dir("chrome")
     assert chrome is not None and (chrome / "manifest.json").is_file()
     assert (chrome / "background.js").is_file()
+
+
+# ------------------------------------- the download must survive a missing host
+
+
+HARNESS = Path(__file__).resolve().parent / "extension_harness.js"
+
+
+def run_extension(mode: str, script: Path | None = None) -> dict:
+    """Run background.js against a fake browser and report what it did."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is needed to run the extension")
+    command = [node, str(HARNESS), mode]
+    if script is not None:
+        command.append(str(script))
+    out = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-400:]
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_a_reachable_app_takes_the_download_over():
+    trace = run_extension("ok")
+    assert len(trace["native"]) == 1
+    payload = trace["native"][0]
+    assert payload["url"].endswith("big.iso")
+    assert payload["cookie"] == "sid=abc", "cookies have to travel with the URL"
+    assert payload["referer"] and payload["user_agent"]
+    assert trace["cancelled"] == [7] and trace["erased"] == [7]
+
+
+def test_an_unreachable_app_leaves_the_browser_download_alone():
+    """The bug behind "downloads stopped working in the browser".
+
+    The extension used to cancel first and ask afterwards, so when the native
+    host was not registered - which is what a reinstall leaves behind - every
+    download was cancelled and nothing replaced it.
+    """
+    trace = run_extension("fail")
+    assert trace["native"], "it should still have tried"
+    assert trace["cancelled"] == [], "the browser's own download was killed"
+    assert trace["erased"] == []
+    assert any("browser will fetch it" in message for message in trace["notified"])
+
+
+def test_the_script_survives_a_browser_without_onDeterminingFilename():
+    """The harness sets that event to undefined, as Firefox does; if the
+    script blew up on it, nothing at all would be traced."""
+    assert run_extension("ok")["native"], "the background script died on load"
+
+
+# ----------------------------------------- repairing a lost registration
+
+
+@windows_only
+def test_the_registration_is_rewritten_when_it_goes_missing(tmp_path):
+    """A reinstall runs --unregister-host and the installer cannot put it
+    back, so the application does it from the id it remembers."""
+    prefix = "Software\\Boltdown\\test-repair\\"
+    try:
+        assert register.repair(["a" * 32], key_prefix=prefix)
+        state = register.status(key_prefix=prefix)
+        assert state["edge"] and state["firefox"]
+
+        # Already registered: repair must not touch a working setup.
+        assert register.repair(["b" * 32], key_prefix=prefix) == {}
+        assert register.status(key_prefix=prefix)["edge"] == state["edge"]
+    finally:
+        register.uninstall(key_prefix=prefix)
+
+
+def test_repair_does_nothing_without_an_id():
+    assert register.repair([]) == {}
+    assert register.repair([None, "", "nonsense"]) == {}

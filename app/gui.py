@@ -84,6 +84,13 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         log.error("could not start the IPC listener: %s", exc)
 
+    # A reinstall takes the native-messaging registration with it, and the
+    # browser then quietly stops handing downloads over. Put it back.
+    if settings.get("extension_id"):
+        from .ipc import register
+
+        register.repair([settings.get("extension_id"), register.DEFAULT_GECKO_ID])
+
     if start_hidden and window.tray is not None:
         log.info("started minimised to the tray")
     else:

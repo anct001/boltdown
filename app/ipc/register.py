@@ -24,8 +24,11 @@ import re
 import sys
 from pathlib import Path
 
+from ..util.log import get_logger
 from ..util.paths import data_dir
 from .protocol import HOST_NAME
+
+log = get_logger(__name__)
 
 BROWSER_KEYS = {
     "chrome": r"Software\Google\Chrome\NativeMessagingHosts",
@@ -199,6 +202,36 @@ def install(
         except OSError as exc:
             results[browser] = f"failed: {exc}"
     return results
+
+
+def repair(extension_ids: list[str], key_prefix: str = "") -> dict[str, str]:
+    """Re-register if the registration has gone missing. Returns what it did.
+
+    It goes missing on every reinstall: the uninstaller runs
+    `--unregister-host`, and the installer that follows cannot put it back
+    because only the user knows their extension id. The result is a browser
+    that silently stops handing downloads over, which looks exactly like the
+    application being broken. So the application repairs itself at start-up
+    from the id it already remembers.
+
+    Anything already registered is left alone - this never overwrites a
+    working registration.
+    """
+    ids = [eid for eid in extension_ids if eid and valid_extension_id(eid)]
+    if not ids:
+        return {}
+    try:
+        current = status(key_prefix=key_prefix)
+    except OSError:  # pragma: no cover - Windows only feature
+        return {}
+    if any(current.values()):
+        return {}
+    log.info("the native host registration was missing; writing it again")
+    try:
+        return install(ids, key_prefix=key_prefix)
+    except (ValueError, OSError) as exc:  # pragma: no cover - defensive
+        log.warning("could not repair the registration: %s", exc)
+        return {}
 
 
 def uninstall(browsers: list[str] | None = None, key_prefix: str = "") -> list[str]:

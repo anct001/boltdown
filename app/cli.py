@@ -12,8 +12,10 @@ from . import __version__
 from .core.engine import Engine, EngineEvent
 from .core.task import DownloadRequest, TaskSnapshot, TaskState
 from .util.fmt import human_size, human_speed, human_duration, parse_size
-from .util.log import setup_logging
+from .util.log import get_logger, setup_logging
 from .util.paths import default_download_dir
+
+log = get_logger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -223,8 +225,27 @@ def _browser_integration(args: argparse.Namespace) -> int:
         return 2
     for browser, value in results.items():
         print(f"{browser:9} {value}")
+    _remember_extension_id(list(args.register_host))
     print("\nNow reload the extension in the browser.")
     return 0
+
+
+def _remember_extension_id(ids: list[str]) -> None:
+    """Store the Chromium id so the application can repair its own
+    registration after a reinstall wipes it."""
+    from .ipc.register import EXTENSION_ID
+    from .storage.db import Database
+    from .storage.settings import Settings
+
+    chromium = next((i for i in ids if EXTENSION_ID.match(i.strip())), None)
+    if chromium is None:
+        return
+    try:
+        db = Database()
+        Settings(db).set("extension_id", chromium)
+        db.close()
+    except Exception as exc:  # noqa: BLE001 - registering still succeeded
+        log.info("could not remember the extension id: %s", exc)
 
 
 def _check_update() -> int:
