@@ -1,6 +1,6 @@
 ; Inno Setup script for IDMClone.
 ;
-;   ISCC.exe /DMyAppVersion=0.2.0 packaging\installer.iss
+;   ISCC.exe /DMyAppVersion=0.3.0 packaging\installer.iss
 ;
 ; Input is dist\IDMClone\ as produced by packaging\idmclone.spec; output is
 ; dist\IDMCloneSetup-<version>.exe.
@@ -16,7 +16,7 @@
 
 #define MyAppName "IDMClone"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #define MyAppVersion "0.3.0"
 #endif
 #define MyAppPublisher "IDMClone"
 #define MyAppExeName "IDMClone.exe"

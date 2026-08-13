@@ -13,7 +13,7 @@ proxy SOCKS5, nhập cookie, thống kê, điều khiển từ dòng lệnh. L�
 
 ## Cài đặt
 
-Người dùng cuối: chạy `IDMCloneSetup-0.2.0.exe` (xem mục [Đóng gói](#đóng-gói)
+Người dùng cuối: chạy `IDMCloneSetup-0.3.0.exe` (xem mục [Đóng gói](#đóng-gói)
 để tự dựng). Bản cài đặt đã kèm sẵn Python và Qt nên máy sạch không cần cài gì
 thêm.
 
@@ -335,7 +335,7 @@ Ra hai thứ trong `dist/`:
 | `idmclone-cli.exe` | console | dòng lệnh + `--register-host` trên máy không có Python |
 | `idmclone-host.exe` | console | native messaging cho Chrome/Edge |
 
-- `dist/IDMCloneSetup-0.2.0.exe` — bản cài đặt Inno Setup, ~50 MB (chỉ dựng khi
+- `dist/IDMCloneSetup-0.3.0.exe` — bản cài đặt Inno Setup, ~50 MB (chỉ dựng khi
   máy có `ISCC.exe`; không có thì bước này được bỏ qua kèm lời nhắc). Cài Inno
   Setup bằng `winget install --id JRSoftware.InnoSetup -e`; bản winget không cần
   quyền admin nên nó nằm ở `%LOCALAPPDATA%\Programs\Inno Setup 6` — `build.py`
@@ -387,7 +387,7 @@ bộ và cho việc kiểm tra bản cập nhật. Trạng thái báo về sẽ 
 
 ```
 IDMClone.exe             UnknownError   CN=IDMClone Test Signing (self-signed) (timestamped)
-IDMCloneSetup-0.2.0.exe  UnknownError   CN=IDMClone Test Signing (self-signed) (timestamped)
+IDMCloneSetup-0.3.0.exe  UnknownError   CN=IDMClone Test Signing (self-signed) (timestamped)
 ```
 
 Muốn hết cảnh báo "nhà phát hành không xác định" thì phải mua chứng chỉ ký mã của
@@ -597,7 +597,7 @@ không chọn. Bản 0.2.0 còn được mở thử **một lần cho mỗi them
 chế độ "theo Windows" đều khởi động và trả lời IPC bình thường. Gỡ im lặng xong
 thì thư mục, shortcut và mục gỡ cài đặt đều biến mất, không sót gì.
 
-SHA-256 của `IDMCloneSetup-0.2.0.exe`:
+SHA-256 của `IDMCloneSetup-0.3.0.exe`:
 
 ```
 f9c901b131051b8120d9c323af2cac7945d1e38cd99646e50c3d8e2f59eaddb2
