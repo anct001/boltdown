@@ -17,7 +17,7 @@ from app.core.schedule import (
     mask_for,
     parse_hhmm,
 )
-from app.storage.db import Database
+from app.storage.db import SCHEMA_VERSION, Database
 
 # 2026-08-12 is a Wednesday (weekday 2).
 WED = datetime(2026, 8, 12, 9, 0)
@@ -201,7 +201,7 @@ def test_a_v1_database_is_migrated(tmp_path):
         # A v1 file walks through every later step in one go.
         assert db.query("SELECT value FROM meta WHERE key='schema_version'")[0][
             "value"
-        ] == "3"
+        ] == str(SCHEMA_VERSION)
 
 
 def test_a_v2_database_gains_the_name_locked_column(tmp_path):
@@ -236,4 +236,27 @@ def test_a_v2_database_gains_the_name_locked_column(tmp_path):
         assert rows == {"a.bin": 1, "b.bin": 0}
         assert db.query("SELECT value FROM meta WHERE key='schema_version'")[0][
             "value"
-        ] == "3"
+        ] == str(SCHEMA_VERSION)
+
+
+def test_a_v3_database_gains_the_site_profiles_table(tmp_path):
+    """Upgrading must not need the file deleted, whatever version it is on."""
+    import sqlite3
+
+    path = tmp_path / "v3.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO meta VALUES ('schema_version', '3');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    with Database(path) as db:
+        db.save_profile("example.com", connections=4)
+        assert [r["pattern"] for r in db.list_profiles()] == ["example.com"]
+        assert db.query("SELECT value FROM meta WHERE key='schema_version'")[0][
+            "value"
+        ] == str(SCHEMA_VERSION)
