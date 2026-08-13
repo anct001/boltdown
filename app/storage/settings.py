@@ -32,6 +32,15 @@ DEFAULTS: dict[str, Any] = {
     "clipboard_ask": True,         # ask first instead of downloading at once
     "dropbox_visible": False,      # the floating drop target
     "dropbox_position": None,      # [x, y] of that window
+    "categories": None,            # None = the built-in extension table
+    "resume_on_start": False,      # continue unfinished downloads at launch
+    "notify_on_finish": True,      # tray/toast when a file lands
+    "auto_extract": False,         # unpack archives once they finish
+    "scan_with_defender": False,   # hand finished files to MpCmdRun.exe
+    "bandwidth_schedule": None,    # {"start": "02:00", "stop": "06:00", "limit": null}
+    "update_check": True,          # ask GitHub about newer releases
+    "update_last_check": None,
+    "use_system_proxy": False,   # follow the WinINET settings
 }
 
 

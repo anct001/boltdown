@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 from ..util.paths import db_path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -79,6 +79,20 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_queue ON schedules(queue_id);
+
+-- Per-host overrides: connections, speed, headers, proxy.
+CREATE TABLE IF NOT EXISTS site_profiles (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern     TEXT NOT NULL UNIQUE,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    connections INTEGER,
+    speed_limit INTEGER,
+    user_agent  TEXT,
+    referer     TEXT,
+    cookie      TEXT,
+    proxy       TEXT,
+    note        TEXT
+);
 
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
@@ -146,6 +160,7 @@ class Database:
                 self.execute(
                     "UPDATE downloads SET name_locked = 1 WHERE downloaded > 0"
                 )
+        # v4 only adds a table, which CREATE TABLE IF NOT EXISTS already made.
         self.execute(
             "UPDATE meta SET value = ? WHERE key = 'schema_version'",
             (str(SCHEMA_VERSION),),
@@ -257,6 +272,34 @@ class Database:
                   AND NOT EXISTS (SELECT 1 FROM history WHERE download_id = ?)""",
             (time.time(), download_id, download_id),
         )
+
+    # ---------------------------------------------------------- site profiles
+
+    def list_profiles(self) -> list[sqlite3.Row]:
+        return self.query("SELECT * FROM site_profiles ORDER BY pattern")
+
+    def save_profile(self, pattern: str, **fields: Any) -> int:
+        allowed = ("enabled", "connections", "speed_limit", "user_agent",
+                   "referer", "cookie", "proxy", "note")
+        values = {k: fields.get(k) for k in allowed}
+        values["enabled"] = int(bool(values["enabled"] if values["enabled"] is not None else 1))
+        columns = ", ".join(allowed)
+        placeholders = ", ".join("?" for _ in allowed)
+        updates = ", ".join(f"{name} = excluded.{name}" for name in allowed)
+        with self._lock:
+            cur = self._conn.execute(
+                f"INSERT INTO site_profiles (pattern, {columns}) "
+                f"VALUES (?, {placeholders}) "
+                f"ON CONFLICT(pattern) DO UPDATE SET {updates}",
+                (pattern.strip(), *values.values()),
+            )
+            if cur.lastrowid:
+                return int(cur.lastrowid)
+        row = self.query("SELECT id FROM site_profiles WHERE pattern = ?", (pattern.strip(),))
+        return int(row[0]["id"]) if row else 0
+
+    def delete_profile(self, profile_id: int) -> None:
+        self.execute("DELETE FROM site_profiles WHERE id = ?", (profile_id,))
 
     # ----------------------------------------------------------------- history
 

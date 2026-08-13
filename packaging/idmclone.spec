@@ -28,6 +28,8 @@ ICON = SPEC_DIR / "idmclone.ico"
 HIDDEN = collect_submodules("yt_dlp.extractor") + [
     "yt_dlp",
     "cryptography.hazmat.primitives.ciphers",
+    "cryptography.hazmat.primitives.ciphers.aead",
+    "socksio",  # httpx loads it lazily for socks5:// proxies
 ]
 
 # Qt modules the download manager never touches. Dropping them roughly halves

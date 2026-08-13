@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from .ipc import endpoint
 from .ipc.protocol import TYPE_SHOW
+from .core import categories
 from .storage.db import Database
 from .storage.settings import Settings
 from .ui import i18n, icons, theme
@@ -51,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     db = Database()
     settings = Settings(db)
     i18n.set_language(settings.language)
+    # The user's own extension table, if they wrote one.
+    categories.set_categories(categories.parse_categories(settings.get("categories")))
     theme.apply(app, settings.get("theme"))
     # "Follow Windows" has to keep following it: repaint when the user flips
     # their system between light and dark while the app is open.
@@ -83,6 +86,9 @@ def main(argv: list[str] | None = None) -> int:
         window.show()
     for url in urls:
         controller.add(url)
+    if settings.get("resume_on_start"):
+        # Everything that was mid-flight when the app last closed.
+        controller.resume_all()
 
     try:
         return app.exec()

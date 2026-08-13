@@ -16,12 +16,13 @@ from PySide6.QtCore import QObject, Qt, Signal
 
 from ..core.categories import category_for
 from ..core.engine import Engine, EngineEvent
+from ..core.profiles import SiteProfile, apply_to
 from ..core.resume import meta_path_for
 from ..core.task import DownloadRequest, TaskSnapshot, TaskState
 from ..media.detect import classify, suggested_name
 from ..storage.db import Database
 from ..storage.settings import Settings
-from ..util import filenames
+from ..util import filenames, proxy
 from ..util.log import get_logger
 
 log = get_logger(__name__)
@@ -422,7 +423,46 @@ class Controller(QObject):
 
     # -------------------------------------------------------------- internals
 
+    def profiles(self) -> list[SiteProfile]:
+        """Per-host rules, newest read from the database each time.
+
+        Cheap enough (a handful of rows) and means editing a profile takes
+        effect on the next download without a restart.
+        """
+        return [
+            SiteProfile(
+                id=row["id"],
+                pattern=row["pattern"],
+                enabled=bool(row["enabled"]),
+                connections=row["connections"],
+                speed_limit=row["speed_limit"],
+                user_agent=row["user_agent"],
+                referer=row["referer"],
+                cookie=row["cookie"],
+                proxy=row["proxy"],
+                note=row["note"] or "",
+            )
+            for row in self.db.list_profiles()
+        ]
+
     def _build_request(self, item: DownloadItem) -> DownloadRequest:
+        # A rule for this host fills in whatever the download itself did not
+        # specify - connections, speed cap, cookie, referer, proxy.
+        tuned = apply_to(item.url, self.profiles(), {
+            "connections": item.connections,
+            "speed_limit": item.speed_limit,
+            "user_agent": item.user_agent,
+            "referer": item.referer,
+            "cookie": item.cookie,
+            "proxy": item.proxy,
+        })
+        chosen_proxy = proxy.resolve(
+            tuned["proxy"] or self.settings.get("proxy"),
+            use_system=bool(self.settings.get("use_system_proxy")),
+            fetch_pac=_read_pac,
+        )
+        if chosen_proxy.needs_socks_package:
+            log.warning("socks proxy requested but socksio is not installed")
         return DownloadRequest(
             url=item.url,
             save_dir=Path(item.save_path),
@@ -430,13 +470,13 @@ class Controller(QObject):
             # the .part file is named after) has to survive; otherwise let
             # Content-Disposition decide.
             filename=item.filename if item.name_locked else None,
-            connections=item.connections,
-            speed_limit=item.speed_limit,
+            connections=tuned["connections"],
+            speed_limit=tuned["speed_limit"],
             use_categories=item.use_categories,
-            cookie=item.cookie,
-            referer=item.referer,
-            user_agent=item.user_agent,
-            proxy=item.proxy,
+            cookie=tuned["cookie"],
+            referer=tuned["referer"],
+            user_agent=tuned["user_agent"],
+            proxy=chosen_proxy.url,
             verify_tls=bool(self.settings.get("verify_tls")),
             # The pipeline is derived from the URL, so a restored row picks
             # the right one again without another column in the database.
@@ -513,6 +553,13 @@ class Controller(QObject):
             )
         except Exception:  # pragma: no cover - a DB hiccup must not kill the UI
             log.exception("could not persist download %d", item.db_id)
+
+
+def _read_pac(url: str) -> str:
+    """Fetch a PAC script so `proxy.resolve` can pick literals out of it."""
+    import httpx
+
+    return httpx.get(url, timeout=8.0).text
 
 
 def _media_name(url: str) -> str | None:

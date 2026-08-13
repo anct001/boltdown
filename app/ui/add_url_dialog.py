@@ -83,6 +83,12 @@ class AddUrlDialog(QDialog):
         # --- advanced ---------------------------------------------------
         self.referer = QLineEdit()
         self.cookie = QLineEdit()
+        self.cookie_import = QPushButton(tr("From browser"))
+        self.cookie_import.setToolTip(tr("Read the cookies this site set in Chrome/Edge"))
+        self.cookie_import.clicked.connect(self._import_cookies)
+        cookie_row = QHBoxLayout()
+        cookie_row.addWidget(self.cookie, 1)
+        cookie_row.addWidget(self.cookie_import)
         self.user_agent = QLineEdit()
         self.user_agent.setPlaceholderText(tr("auto"))
         self.proxy = QLineEdit(settings.get("proxy") or "")
@@ -92,7 +98,7 @@ class AddUrlDialog(QDialog):
 
         advanced_form = QFormLayout()
         advanced_form.addRow(tr("Referer:"), self.referer)
-        advanced_form.addRow(tr("Cookie:"), self.cookie)
+        advanced_form.addRow(tr("Cookie:"), cookie_row)
         advanced_form.addRow(tr("User-Agent:"), self.user_agent)
         advanced_form.addRow(tr("Proxy:"), self.proxy)
         advanced_form.addRow(tr("Speed limit:"), self.limit)
@@ -165,6 +171,32 @@ class AddUrlDialog(QDialog):
         if not name:
             name = (suggested_name(url) if media else filenames.from_url(url)) or ""
         self.category_label.setText(tr(category_for(name)) if name else "-")
+
+    def _import_cookies(self) -> None:
+        """Fill the Cookie field from the browser's own store."""
+        from ..util import browser_cookies
+
+        url = self.url_edit.text().strip()
+        host = urlsplit(url).hostname or ""
+        if not host:
+            QMessageBox.warning(self, tr("Add a download"), tr("Enter a URL"))
+            return
+        browsers = browser_cookies.installed_browsers()
+        if not browsers:
+            QMessageBox.information(
+                self, tr("Cookie:"), tr("No Chromium browser profile was found.")
+            )
+            return
+        for browser in browsers:
+            header = browser_cookies.read_cookies(browser, host)
+            if header:
+                self.cookie.setText(header)
+                self.advanced.setChecked(True)
+                return
+        QMessageBox.information(
+            self, tr("Cookie:"),
+            tr("That site has no cookies stored in your browser."),
+        )
 
     def _accept_now(self) -> None:
         self.start_now = True

@@ -43,6 +43,7 @@ from .dropbox import DropBox
 from .grabber_dialog import GrabberDialog
 from .history_dialog import HistoryDialog
 from .i18n import tr
+from .profiles_dialog import SiteProfilesDialog
 from .progress_dialog import ProgressDialog, _open_path
 from .queue_dialog import SchedulerDialog
 from .scheduler import QueueScheduler
@@ -151,6 +152,9 @@ class MainWindow(QMainWindow):
         self.action_history = QAction(icons.history_icon(), tr("History"), self)
         self.action_history.triggered.connect(self.open_history)
 
+        self.action_profiles = QAction(icons.globe_icon(), tr("Site rules"), self)
+        self.action_profiles.triggered.connect(self.open_profiles)
+
         self.action_dropbox = QAction(icons.dropbox_icon(), tr("Drop box"), self)
         self.action_dropbox.setCheckable(True)
         self.action_dropbox.setChecked(bool(self.settings.get("dropbox_visible")))
@@ -207,6 +211,8 @@ class MainWindow(QMainWindow):
         downloads.addAction(self.action_grabber)
 
         options = menu.addMenu(tr("Options"))
+        options.addAction(self.action_profiles)
+        options.addSeparator()
         options.addAction(self.action_clipboard)
         options.addAction(self.action_dropbox)
         options.addSeparator()
@@ -346,6 +352,9 @@ class MainWindow(QMainWindow):
 
     def open_history(self) -> None:
         HistoryDialog(self.controller, self.controller.db, self).exec()
+
+    def open_profiles(self) -> None:
+        SiteProfilesDialog(self.controller, self.controller.db, self).exec()
 
     def verify_checksum(self, item: DownloadItem) -> None:
         if not item.path.exists():

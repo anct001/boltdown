@@ -245,6 +245,41 @@ _VI: dict[str, str] = {
     "Match": "Khớp",
     "Does NOT match": "KHÔNG khớp",
     # drop box
+    # proxy, cookies, categories
+    "From browser": "Lấy từ trình duyệt",
+    "Read the cookies this site set in Chrome/Edge":
+        "Đọc cookie mà trang này đã lưu trong Chrome/Edge",
+    "No Chromium browser profile was found.":
+        "Không tìm thấy hồ sơ Chrome/Edge nào.",
+    "That site has no cookies stored in your browser.":
+        "Trình duyệt chưa lưu cookie nào của trang này.",
+    "Use the Windows proxy settings": "Dùng thiết lập proxy của Windows",
+    "Windows proxy": "Proxy của Windows",
+    "System PAC file": "Tệp PAC của hệ thống",
+    "Windows is set to connect directly": "Windows đang đặt kết nối thẳng",
+    "socks5:// needs the socksio package": "socks5:// cần gói socksio",
+    "Categories": "Danh mục",
+    "One line per folder: Name = ext, ext, ext":
+        "Mỗi dòng một thư mục: Tên = đuôi, đuôi, đuôi",
+    "Restore defaults": "Khôi phục mặc định",
+    "Unpack archives when they finish": "Tự giải nén khi tải xong",
+    "Scan finished files with Defender": "Quét tệp bằng Defender sau khi tải",
+    "Continue unfinished downloads at start": "Mở app là tải tiếp các mục dở",
+    "Notify when a download finishes": "Báo khi tải xong",
+    # site rules
+    "Site rules": "Quy tắc theo trang",
+    "Host:": "Tên miền:",
+    "Host": "Tên miền",
+    "Enter a host": "Nhập tên miền",
+    "Enabled": "Bật",
+    "disabled": "đang tắt",
+    "default": "mặc định",
+    "New": "Tạo mới",
+    "Note": "Ghi chú",
+    "The narrowest match wins: cdn.example.com beats *.example.com beats *. "
+    "Empty fields are left to the download itself.":
+        "Khớp hẹp nhất thắng: cdn.example.com hơn *.example.com hơn *. "
+        "Ô để trống thì giữ nguyên theo từng lượt tải.",
     "Drop box": "Hộp thả nổi",
     "Drop links here": "Thả link vào đây",
     "Hide drop box": "Ẩn hộp thả",

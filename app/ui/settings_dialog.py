@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -23,10 +24,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core import categories
 from ..media.ffmpeg import find_ffmpeg
 from ..media.ytdlp import version as ytdlp_version
 from ..storage.settings import Settings
-from ..util import autostart
+from ..util import autostart, proxy
 from ..util.fmt import human_size, parse_size
 from . import theme
 from .add_url_dialog import QUALITIES
@@ -44,6 +46,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._general_tab(), tr("General settings"))
         tabs.addTab(self._connection_tab(), tr("Connection"))
         tabs.addTab(self._video_tab(), tr("Video"))
+        tabs.addTab(self._categories_tab(), tr("Categories"))
         tabs.addTab(self._clipboard_tab(), tr("Clipboard"))
         tabs.addTab(self._browser_tab(), tr("Browser integration"))
 
@@ -77,6 +80,10 @@ class SettingsDialog(QDialog):
         self.autostart = QCheckBox(tr("Start with Windows (in the tray)"))
         self.autostart.setChecked(bool(self.settings.get("start_with_windows")))
         self.autostart.setEnabled(sys.platform == "win32")
+        self.resume_on_start = QCheckBox(tr("Continue unfinished downloads at start"))
+        self.resume_on_start.setChecked(bool(self.settings.get("resume_on_start")))
+        self.notify_on_finish = QCheckBox(tr("Notify when a download finishes"))
+        self.notify_on_finish.setChecked(bool(self.settings.get("notify_on_finish")))
 
         self.language = QComboBox()
         for code, label in LANGUAGES.items():
@@ -98,6 +105,8 @@ class SettingsDialog(QDialog):
         form.addRow("", self.minimize_to_tray)
         form.addRow("", self.ask_before)
         form.addRow("", self.autostart)
+        form.addRow("", self.resume_on_start)
+        form.addRow("", self.notify_on_finish)
         form.addRow(tr("Language:"), self.language)
         form.addRow(tr("Theme:"), self.theme)
         return page
@@ -117,7 +126,14 @@ class SettingsDialog(QDialog):
         self.limit.setPlaceholderText(tr("unlimited"))
 
         self.proxy = QLineEdit(self.settings.get("proxy") or "")
-        self.proxy.setPlaceholderText("http://127.0.0.1:8080")
+        self.proxy.setPlaceholderText(
+            "http://127.0.0.1:8080  /  socks5://127.0.0.1:1080"
+        )
+        self.use_system_proxy = QCheckBox(tr("Use the Windows proxy settings"))
+        self.use_system_proxy.setChecked(bool(self.settings.get("use_system_proxy")))
+        self.proxy_status = QLabel(_proxy_status())
+        self.proxy_status.setWordWrap(True)
+        self.proxy_status.setEnabled(False)
         self.user_agent = QLineEdit(self.settings.get("user_agent") or "")
         self.user_agent.setPlaceholderText(tr("auto"))
         self.verify_tls = QCheckBox(tr("Verify TLS certificates"))
@@ -128,11 +144,41 @@ class SettingsDialog(QDialog):
         form.addRow(tr("Simultaneous downloads:"), self.concurrent)
         form.addRow(tr("Global speed limit:"), self.limit)
         form.addRow(tr("Proxy:"), self.proxy)
+        form.addRow("", self.use_system_proxy)
+        form.addRow("", self.proxy_status)
         form.addRow(tr("User-Agent:"), self.user_agent)
         form.addRow("", self.verify_tls)
         note = QLabel(tr("Restart required for the language change."))
         note.setEnabled(False)
         form.addRow("", note)
+        return page
+
+    def _categories_tab(self) -> QWidget:
+        page = QWidget()
+        self.categories = QPlainTextEdit(
+            self.settings.get("categories") or categories.format_categories()
+        )
+        self.categories.setPlaceholderText("Video = mp4, mkv, avi")
+        restore = QPushButton(tr("Restore defaults"))
+        restore.clicked.connect(
+            lambda: self.categories.setPlainText(
+                categories.format_categories(categories.CATEGORIES)
+            )
+        )
+        self.auto_extract = QCheckBox(tr("Unpack archives when they finish"))
+        self.auto_extract.setChecked(bool(self.settings.get("auto_extract")))
+        self.scan_defender = QCheckBox(tr("Scan finished files with Defender"))
+        self.scan_defender.setChecked(bool(self.settings.get("scan_with_defender")))
+        self.scan_defender.setEnabled(sys.platform == "win32")
+
+        layout = QVBoxLayout(page)
+        note = QLabel(tr("One line per folder: Name = ext, ext, ext"))
+        note.setEnabled(False)
+        layout.addWidget(note)
+        layout.addWidget(self.categories, 1)
+        layout.addWidget(restore)
+        layout.addWidget(self.auto_extract)
+        layout.addWidget(self.scan_defender)
         return page
 
     def _clipboard_tab(self) -> QWidget:
@@ -299,6 +345,7 @@ class SettingsDialog(QDialog):
             "max_concurrent": self.concurrent.value(),
             "speed_limit": limit,
             "proxy": self.proxy.text().strip() or None,
+            "use_system_proxy": self.use_system_proxy.isChecked(),
             "user_agent": self.user_agent.text().strip() or None,
             "verify_tls": self.verify_tls.isChecked(),
             "video_quality": self.quality.currentData(),
@@ -307,7 +354,16 @@ class SettingsDialog(QDialog):
             "clipboard_monitor": self.clipboard_monitor.isChecked(),
             "clipboard_ask": self.clipboard_ask.isChecked(),
             "clipboard_extensions": self.clipboard_extensions.text().strip() or None,
+            "resume_on_start": self.resume_on_start.isChecked(),
+            "notify_on_finish": self.notify_on_finish.isChecked(),
+            "auto_extract": self.auto_extract.isChecked(),
+            "scan_with_defender": self.scan_defender.isChecked(),
+            "categories": self.categories.toPlainText().strip() or None,
         })
+        # The table has to take effect for the next download, not the next launch.
+        categories.set_categories(
+            categories.parse_categories(self.categories.toPlainText())
+        )
         # The registry is the source of truth Windows reads, so keep it in step
         # with the checkbox - and keep the setting honest if the write failed.
         if sys.platform == "win32":
@@ -318,6 +374,21 @@ class SettingsDialog(QDialog):
         if app is not None:
             theme.apply(app, self.theme.currentData())
         self.accept()
+
+
+def _proxy_status() -> str:
+    """Tell the user what Windows is set to, and whether SOCKS will work."""
+    settings = proxy.system_proxy()
+    parts = []
+    if settings.pac_url:
+        parts.append(f"{tr('System PAC file')}: {settings.pac_url}")
+    elif settings.enabled and settings.server:
+        parts.append(f"{tr('Windows proxy')}: {settings.server}")
+    else:
+        parts.append(tr("Windows is set to connect directly"))
+    if not proxy.socks_available():
+        parts.append(tr("socks5:// needs the socksio package"))
+    return "\n".join(parts)
 
 
 def _tool_status(ffmpeg_path: str | None) -> str:
