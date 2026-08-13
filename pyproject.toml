@@ -1,6 +1,6 @@
 [project]
 name = "boltdown"
-version = "0.4.0"
+version = "0.5.0"
 description = "Multi-segment download manager for Windows (IDM-like)"
 requires-python = ">=3.11"
 dependencies = [
