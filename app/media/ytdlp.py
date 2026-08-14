@@ -12,10 +12,11 @@ most downloads never touch it.
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..core.errors import FatalError
+from ..core.errors import DownloadError, FatalError, TransientError
 from ..util.log import get_logger
 
 log = get_logger(__name__)
@@ -27,6 +28,38 @@ HLS_PROTOCOLS = ("m3u8", "m3u8_native")
 
 class ExtractionError(FatalError):
     """yt-dlp could not read the page (site changed, geo block, private...)."""
+
+
+#: yt-dlp failures that are worth trying again. "Requested format is not
+#: available" reads permanent and is not: YouTube hands out a format list that
+#: sometimes resolves to nothing for a minute at a time, and the same video
+#: extracts perfectly on the next attempt - one was seen failing in the morning
+#: and working in the afternoon with every selector.
+_RETRYABLE = (
+    "requested format is not available",
+    "http error 429",
+    "unable to download webpage",
+    "read operation timed out",
+    "temporary failure",
+    "connection reset",
+    "the read operation timed out",
+)
+#: yt-dlp colours its own error text; the codes end up in the download list
+_ANSI = re.compile(r"\[[0-9;]*m")
+
+
+def clean_message(text: str) -> str:
+    """yt-dlp's message without the terminal colour codes."""
+    return _ANSI.sub("", str(text)).strip()
+
+
+def classify_extraction(text: str) -> DownloadError:
+    """Fatal, unless yt-dlp is having one of its moments."""
+    message = clean_message(text)
+    lowered = message.lower()
+    if any(marker in lowered for marker in _RETRYABLE):
+        return TransientError(message)
+    return ExtractionError(message)
 
 
 class YtDlpMissing(FatalError):
@@ -224,9 +257,9 @@ def extract_playlist_sync(url: str, options: dict[str, Any] | None = None) -> Pl
         with YoutubeDL(opts) as ydl:
             data = ydl.extract_info(url, download=False)
     except YtDownloadError as exc:
-        raise ExtractionError(str(exc)) from exc
+        raise classify_extraction(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - extractors raise anything
-        raise ExtractionError(f"{type(exc).__name__}: {exc}") from exc
+        raise classify_extraction(f"{type(exc).__name__}: {exc}") from exc
     if not data:
         raise ExtractionError("yt-dlp returned no information")
     return playlist_from_dict(data)
@@ -310,9 +343,9 @@ def extract_sync(url: str, options: dict[str, Any] | None = None) -> MediaInfo:
         with YoutubeDL(opts) as ydl:
             data = ydl.extract_info(url, download=False)
     except YtDownloadError as exc:
-        raise ExtractionError(str(exc)) from exc
+        raise classify_extraction(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - extractors raise anything
-        raise ExtractionError(f"{type(exc).__name__}: {exc}") from exc
+        raise classify_extraction(f"{type(exc).__name__}: {exc}") from exc
     if not data:
         raise ExtractionError("yt-dlp returned no information")
     return info_from_dict(data)

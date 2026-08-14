@@ -293,3 +293,40 @@ def test_engine_runs_a_playlist_task(server, tmp_path, no_ffmpeg):
 
     assert snap is not None and snap.path is not None
     assert Path(snap.path).read_bytes() == b"".join(chunks)
+
+
+# ------------------------------- yt-dlp errors: colour codes and false finality
+
+
+def test_the_colour_codes_yt_dlp_prints_do_not_reach_the_download_list():
+    """The user saw "[0;31mERROR:[0m [youtube] ..." in the status column."""
+    from app.media.ytdlp import clean_message
+
+    raw = "\x1b[0;31mERROR:\x1b[0m [youtube] abc: Requested format is not available"
+    cleaned = clean_message(raw)
+    assert "\x1b" not in cleaned and "[0;31m" not in cleaned
+    assert cleaned.startswith("ERROR: [youtube]")
+
+
+def test_a_format_that_is_not_available_is_worth_trying_again():
+    """Seen on a real video: failed in the morning, extracted perfectly in the
+    afternoon with every selector. Treating it as fatal loses the download."""
+    from app.core.errors import TransientError
+    from app.media.ytdlp import ExtractionError, classify_extraction
+
+    for flaky in (
+        "ERROR: [youtube] q-UkjjrkxYU: Requested format is not available",
+        "ERROR: Unable to download webpage: timed out",
+        "HTTP Error 429: Too Many Requests",
+        "ERROR: The read operation timed out",
+    ):
+        assert isinstance(classify_extraction(flaky), TransientError), flaky
+
+    for permanent in (
+        "ERROR: Private video. Sign in if you have been granted access",
+        "ERROR: Video unavailable. This video contains content from X",
+        "ERROR: [generic] None: Unsupported URL",
+    ):
+        error = classify_extraction(permanent)
+        assert isinstance(error, ExtractionError), permanent
+        assert not isinstance(error, TransientError)
