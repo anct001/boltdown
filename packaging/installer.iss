@@ -1,6 +1,6 @@
 ; Inno Setup script for Boltdown.
 ;
-;   ISCC.exe /DMyAppVersion=0.6.1 packaging\installer.iss
+;   ISCC.exe /DMyAppVersion=0.7.0 packaging\installer.iss
 ;
 ; Input is dist\Boltdown\ as produced by packaging\boltdown.spec; output is
 ; dist\BoltdownSetup-<version>.exe.
@@ -16,7 +16,7 @@
 
 #define MyAppName "Boltdown"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.6.1"
+  #define MyAppVersion "0.7.0"
 #endif
 #define MyAppPublisher "Boltdown"
 #define MyAppExeName "Boltdown.exe"
