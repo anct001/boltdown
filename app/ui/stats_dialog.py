@@ -118,7 +118,7 @@ class DailyChart(QWidget):
                 painter.drawRect(x, y, max(2, step - 2), self.BLOCK - 1)
 
         painter.setPen(QPen(palette.color("text")))
-        painter.setFont(theme.pixel_font(9))
+        painter.setFont(theme.font_for(human_size(peak), 9))
         painter.drawText(
             rect.adjusted(6, 3, -6, 0),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,

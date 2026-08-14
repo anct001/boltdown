@@ -70,12 +70,12 @@ icon cũng được vẽ lại theo màu mới.
 |---|---|---|
 | ![Sáng](docs/screenshots/themes/light.png)<br>**Sáng** | ![Tối](docs/screenshots/themes/dark.png)<br>**Tối** | ![Cyberpunk](docs/screenshots/themes/cyberpunk.png)<br>**Cyberpunk** |
 | ![Neon](docs/screenshots/themes/neon.png)<br>**Neon** | ![Kính mờ](docs/screenshots/themes/glass.png)<br>**Kính mờ** | ![Nord](docs/screenshots/themes/nord.png)<br>**Nord** |
-| ![Dracula](docs/screenshots/themes/dracula.png)<br>**Dracula** | ![Pixel Art](docs/screenshots/themes/pixel.png)<br>**Pixel Art** | ![Isometric 3D](docs/screenshots/themes/iso.png)<br>**Isometric 3D** |
+| ![Dracula](docs/screenshots/themes/dracula.png)<br>**Dracula** | ![Pixel Art](docs/screenshots/themes/pixel.png)<br>**Pixel Cyberpunk** | ![Isometric 3D](docs/screenshots/themes/iso.png)<br>**Isometric 3D** |
 
 Vài điểm về cách làm:
 
 - Mỗi theme là **một bộ token màu**, không phải một file CSS riêng — cùng một
-  stylesheet sinh ra cho cả bảy, nên thêm theme mới chỉ là thêm mười bốn màu.
+  stylesheet sinh ra cho cả chín, nên thêm theme mới chỉ là thêm mười bốn màu.
 - Có test kiểm **độ tương phản**: chữ trên nền của *mọi* theme phải đạt tối
   thiểu 4.5:1 (mức AA của WCAG), nên không theme nào đẹp mà khó đọc.
 - **Kính mờ** dùng nền trong suốt thật: app xin Windows 11 dựng lớp *acrylic*
@@ -85,9 +85,13 @@ Vài điểm về cách làm:
   Tạm dừng lấy warning, Dừng/Xoá lấy danger. Cyberpunk ra hồng tím, Neon ra
   xanh cyan, không cần bộ icon riêng cho từng theme.
 
-#### Pixel Art
+#### Pixel Cyberpunk
 
-Theme thứ tám không chỉ đổi màu mà đổi cả cách vẽ:
+Theme thứ tám không chỉ đổi màu mà đổi cả cách vẽ, và lấy tông cyberpunk:
+hồng magenta của biển hiệu neon, lơ cyan của dòng chữ *system online*, nền
+tím đen như mặt đường sau mưa. Cố ý khác theme **Cyberpunk** thường: bảng
+màu này phải sống được khi bị vẽ thành khối phẳng với hai mặt đổ bóng cứng,
+nên màu sáng hơn và cách xa nhau hơn.
 
 - **Icon vẽ lại theo lưới 8×8**, mỗi ô là một hình vuông đặc và tắt khử răng
   cưa — phóng to bao nhiêu cũng sắc cạnh, không nhoè. Có test đếm số màu trong
@@ -103,6 +107,9 @@ Theme thứ tám không chỉ đổi màu mà đổi cả cách vẽ:
 - Bo góc bị ép về 0 và viền dày 2px bằng một khối QSS phụ nối vào cuối
   stylesheet — **không dùng selector `*`** (một lần dùng đã làm bộ test GUI
   chậm gấp bốn), và có test canh đúng chỗ đó.
+- **Scanline kiểu màn CRT** phủ lên cảnh thành phố — vẽ sau cùng nên nằm trên
+  cả các toà tháp, vì scanline mà dừng ở đường chân trời thì là hình nền chứ
+  không phải màn hình. Mỗi toà nhà còn hắt một quầng neon xuống mặt đất.
 
 #### Isometric 3D và thành phố tải xuống
 
@@ -135,6 +142,32 @@ Nó là đồ trang trí, mà đồ trang trí thì phải sòng phẳng về ch
 chạy khi còn thứ gì đang chuyển động**. Danh sách rảnh thì vẽ một khung tĩnh
 rồi dừng hẳn — có test canh đúng điều đó, và một test nữa đo thời gian vẽ một
 khung phải nằm dưới ngân sách 50ms của 20 khung/giây.
+
+### Chữ và phông
+
+Font bitmap chỉ được dùng cho **chuỗi ASCII** — tốc độ, phần trăm, đồng hồ.
+Đây không phải lựa chọn thẩm mỹ mà là bắt buộc: `QFontMetrics.inFont()` **báo
+sai** rằng Fixedsys có chữ "ạ", rồi vẽ ra ô vuông. Nên quy tắc phải đặt ở phía
+văn bản chứ không phải hỏi font: `theme.font_for(text)` trả về font bitmap khi
+`text.isascii()`, còn lại trả về font hệ thống.
+
+Trước khi sửa, ở theme pixel một dòng đã tải xong hiện `Hoàn t▯t`; nay hiện
+đúng, kể cả 完了 hay Завершено.
+
+### Chín ngôn ngữ
+
+**Tuỳ chọn → Ngôn ngữ**: Tiếng Việt, English, 简体中文, 日本語, 한국어,
+Español, Français, Deutsch, Русский. Mỗi ngôn ngữ hiện **bằng chính nó** trong
+danh sách — người chỉ đọc được tiếng Hàn không thể tìm chữ "Korean" trong một
+danh sách tiếng Anh.
+
+Tiếng Việt dịch đủ; bảy ngôn ngữ mới phủ phần giao diện người dùng thật sự
+nhìn thấy (thanh công cụ, menu, bảng, trạng thái, hộp thoại thêm và cài đặt),
+phần còn lại lùi về tiếng Anh. Có test canh **khoá dịch gõ sai** — khoá không
+khớp chuỗi nào trong mã nguồn là bản dịch không bao giờ hiện, mà cũng không có
+gì báo lỗi.
+
+![Giao diện tiếng Nhật](docs/screenshots/i18n/main-window.png)
 
 ### Hiệu ứng âm thanh 8-bit
 

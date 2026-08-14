@@ -29,6 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--theme", default="dark")
     parser.add_argument("--out", default=str(PROJECT_ROOT / "docs" / "screenshots"))
     parser.add_argument("--work-dir", default=None)
+    parser.add_argument("--language", default=None,
+                        help="shoot the interface in this language (vi, en, ja, ...)")
     parser.add_argument(
         "--gallery", action="store_true",
         help="one main-window shot per theme, into <out>/themes/",
@@ -64,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     from tests.server import FileServer
 
     app = QApplication.instance() or QApplication([])
-    i18n.set_language("vi")
+    i18n.set_language(args.language or "vi")
     theme.apply(app, args.theme)
 
     server = FileServer().start()
@@ -83,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         "max_concurrent": 3,
         "connections": 8,
         "theme": args.theme,
+        **({"language": args.language} if args.language else {}),
         # The town is part of the look these shots are for.
         "scene_visible": args.theme in ("pixel", "iso"),
     })

@@ -260,3 +260,84 @@ def test_the_window_makes_a_noise_when_a_download_finishes(qapp, tmp_path, monke
     assert [p.split("-")[0] for p in played] == ["completed", "error"]
     window.close()
     db.close()
+
+
+# ------------------------------------------- the bitmap font and its limits
+
+
+def test_the_bitmap_font_is_used_only_where_it_can_draw(qapp):
+    """`QFontMetrics.inFont` claims Fixedsys has "ạ" and then draws a box, so
+    the rule is about the text, not about asking the font."""
+    pixel = theme.pixel_font(10).family()
+
+    for ascii_text in ("87.4%", "12.5 MB/s", "01:23", "1,024 bytes"):
+        assert theme.font_for(ascii_text, 10).family() == pixel, ascii_text
+
+    for translated in ("Hoàn tất", "Tạm dừng", "已完成", "완료", "Завершено",
+                       "Téléchargement"):
+        chosen = theme.font_for(translated, 10).family()
+        assert chosen != pixel, f"{translated} would render as boxes in {chosen}"
+
+
+def test_the_status_column_asks_for_a_font_that_can_draw_the_status():
+    """The delegate must pass the text, not assume it is a percentage."""
+    import inspect
+
+    from app.ui import task_model
+
+    source = inspect.getsource(task_model.ProgressDelegate)
+    assert "theme.pixel_font" not in source, "that ignores what is being drawn"
+    assert source.count("theme.font_for") >= 2
+
+
+# ------------------------------------------------------ the cyberpunk repaint
+
+
+def test_the_pixel_theme_is_neon_now():
+    """Magenta signage and cyan, not the old arcade amber and green."""
+    assert theme.PIXEL.label == "Pixel Cyberpunk"
+    accent = theme.PIXEL.color("accent")
+    assert accent.hue() > 280 or accent.hue() < 20, "the accent should be magenta"
+    assert theme.PIXEL.color("window").lightness() < 40, "night, not dusk"
+    assert theme.PIXEL.scanlines > 0
+
+
+def test_only_the_neon_themes_get_scanlines():
+    """On a daylight scene the pattern reads as a dirty screen."""
+    scanned = [p.name for p in theme.THEMES.values() if p.scanlines]
+    assert scanned == ["pixel"]
+    assert theme.ISO.scanlines == 0
+
+
+def test_the_town_draws_scanlines_over_the_towers_not_under_them(qapp, monkeypatch):
+    """A scanline that stops at the skyline is wallpaper, not a screen."""
+    import inspect
+
+    from app.ui import scene
+
+    source = inspect.getsource(scene.SceneWidget.paintEvent)
+    order = [
+        source.index("_paint_town"),
+        source.index("_paint_scanlines"),
+        source.index("_paint_caption"),
+    ]
+    assert order == sorted(order), "scanlines must come after the town"
+
+
+def test_a_theme_without_scanlines_draws_none(qapp, monkeypatch):
+    from app.ui import scene, theme as theme_mod
+
+    widget = scene.SceneWidget()
+    widget.resize(300, 160)
+    widget.update_downloads([(1, "a.bin", 50.0, 1000.0, False)])
+
+    def inked(palette) -> int:
+        monkeypatch.setattr(theme_mod, "_current", palette)
+        image = widget.grab().toImage()
+        return sum(
+            1 for x in range(0, image.width(), 3) for y in range(image.height())
+            if image.pixelColor(x, y).lightness() > 6
+        )
+
+    # The scanline pass only darkens, so the neon theme cannot end up brighter.
+    assert inked(theme_mod.PIXEL) <= inked(theme_mod.ISO)

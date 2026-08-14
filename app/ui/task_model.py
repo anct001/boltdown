@@ -288,12 +288,14 @@ class ProgressDelegate(QStyledItemDelegate):
                 height=7 if filled else 3,
             )
 
+        status = DownloadTableModel.status_text(item)
         painter.setPen(QPen(palette.color("text")))
-        painter.setFont(theme.pixel_font(9))
+        # "87.4%" gets the bitmap font; "Hoàn tất" and "已完成" must not.
+        painter.setFont(theme.font_for(status, 9))
         painter.drawText(
             option.rect.adjusted(0, 0, -8, 0),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            DownloadTableModel.status_text(item),
+            status,
         )
         painter.restore()
 
@@ -331,12 +333,14 @@ class ProgressDelegate(QStyledItemDelegate):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(track)
 
+        status = DownloadTableModel.status_text(item)
         painter.setPen(QPen(palette.color("text")))
-        painter.setFont(theme.pixel_font(9))
+        # "87.4%" gets the bitmap font; "Hoàn tất" and "已完成" must not.
+        painter.setFont(theme.font_for(status, 9))
         painter.drawText(
             option.rect.adjusted(0, 0, -8, 0),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            DownloadTableModel.status_text(item),
+            status,
         )
         painter.restore()
 

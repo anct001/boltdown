@@ -203,6 +203,7 @@ class SceneWidget(QWidget):
         self._paint_ground(painter, camera, palette)
         self._paint_town(painter, camera, palette)
         self._paint_sparks(painter, camera, palette)
+        self._paint_scanlines(painter, palette)
         self._paint_caption(painter, palette)
 
     def camera(self) -> voxel.Camera:
@@ -249,6 +250,21 @@ class SceneWidget(QWidget):
             for block in range(cloud.width):
                 painter.drawRect(x + block * 10, cloud.y - (block % 2) * 4, 12, 6)
 
+    def _paint_scanlines(self, painter, palette) -> None:
+        """The CRT line pattern, over everything except the caption.
+
+        Drawn last so it lies on the towers too - a scanline that stops at the
+        skyline is a wallpaper, not a screen. One translucent line every
+        `scanlines` pixels is enough; any denser and the blocks turn to mush.
+        """
+        step = getattr(palette, "scanlines", 0)
+        if not step:
+            return
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(palette.alpha("window", 90))
+        for y in range(0, self.height(), step):
+            painter.drawRect(0, y, self.width(), 1)
+
     def _paint_ground(self, painter, camera, palette) -> None:
         # Only as much ground as there is town to stand on, plus the road.
         columns = max(2, len(self._buildings))
@@ -264,6 +280,15 @@ class SceneWidget(QWidget):
             colour = palette.color(HUES[building.hue])
             if building.flash:
                 colour = voxel.shade(colour, 100 + 60 * (building.flash % 4 > 1))
+            if getattr(palette, "scanlines", 0):
+                # Neon signage throws light on the wet ground under it.
+                glow = QColor(colour)
+                glow.setAlpha(70)
+                point = camera.project(column, 0, 0)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(glow)
+                painter.drawRect(point.x() - voxel.TILE_W - 3, point.y() - 2,
+                                 (voxel.TILE_W + 3) * 2, voxel.TILE_H * 2 + 4)
             voxel.draw_stack(painter, camera, column, 0, levels, color=colour)
             if building.done:
                 # A beacon on a finished tower, bobbing one pixel.

@@ -141,7 +141,7 @@ class SpeedGraph(QWidget):
             )
 
         painter.setPen(palette.color("text"))
-        painter.setFont(theme.pixel_font(9))
+        painter.setFont(theme.font_for(human_speed(peak), 9))
         painter.drawText(
             rect.adjusted(6, 4, -6, 0),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
@@ -186,7 +186,7 @@ class SpeedGraph(QWidget):
                 painter.drawRect(x, y, self.CELL - 1, row_height - 1)
 
         painter.setPen(palette.color("text"))
-        painter.setFont(theme.pixel_font(9))
+        painter.setFont(theme.font_for(human_speed(peak), 9))
         painter.drawText(
             rect.adjusted(6, 4, -6, 0),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,

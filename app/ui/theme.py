@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication
 
 from ..util.log import get_logger
@@ -58,6 +58,10 @@ class Palette:
     pixel: bool = False
     #: Bars and charts are drawn as isometric blocks rather than flat cells.
     iso: bool = False
+    #: Height in pixels of the CRT scanline pattern drawn over the town; 0 is
+    #: off. Only the neon themes want it - on a daylight scene it just looks
+    #: like a dirty screen.
+    scanlines: int = 0
 
     @property
     def is_dark(self) -> bool:
@@ -215,26 +219,31 @@ DRACULA = Palette(
     selection="#44475a",
 )
 
-#: A cabinet in a dark arcade: near-black navy, phosphor green, amber CRT.
-#: The colours are deliberately few and saturated - an NES could show 25 at a
-#: time and that constraint is most of why the era looks the way it does.
+#: A pixel arcade in a rainy neon alley. The palette stays small and saturated
+#: the way an 8-bit machine forced it to be, but the hues come from the
+#: cyberpunk end: magenta signage, cyan glow, violet-black night. Deliberately
+#: not the same as the non-pixel Cyberpunk theme - this one has to survive
+#: being drawn as flat blocks with two hard shadows, so the colours are
+#: brighter and further apart.
 PIXEL = Palette(
-    name="pixel", label="Pixel Art", dark=True,
-    window="#0f1422",
-    surface="#1a2133",
-    surface_alt="#252f49",
-    border="#4b5d8f",
-    text="#eaf4ff",
-    muted="#93a7cd",
-    accent="#ffd23f",       # arcade amber, the colour of a coin slot
-    accent_hover="#ffe480",
-    on_accent="#0f1422",
-    success="#3ae374",      # phosphor green
-    warning="#ff9f1a",
-    danger="#ff4757",
-    track="#0b0f19",
-    selection="#2f3c60",
+    name="pixel", label="Pixel Cyberpunk", dark=True,
+    window="#0a0713",        # wet asphalt at 3am
+    surface="#140d24",
+    surface_alt="#1f1338",
+    border="#6b2fa8",        # the violet of a cheap neon tube
+    text="#f4ecff",
+    muted="#b48fd6",         # violet grey, still readable on the dark surface
+    accent="#ff2fb3",        # hot magenta signage
+    accent_hover="#ff6ecb",
+    on_accent="#0a0713",
+    success="#00f0c8",       # cyan, the "system online" colour
+    warning="#ffd23f",
+    danger="#ff3355",
+    track="#080510",
+    selection="#3a1a5e",
     pixel=True,
+    #: horizontal CRT lines drawn over the town, 0 = off
+    scanlines=3,
 )
 
 #: Daylight over a voxel town: warmer and more colourful than the arcade
@@ -541,6 +550,8 @@ def pixel_font(point_size: int = 10):
     the glyphs of the system codepage, and Vietnamese labels in a font without
     Vietnamese is a screen full of boxes. Digits, speeds and percentages are
     ASCII, so they can have the arcade look at no risk.
+
+    Use `font_for` unless the text is known to be ASCII.
     """
     from PySide6.QtGui import QFont, QFontInfo
 
@@ -551,6 +562,26 @@ def pixel_font(point_size: int = 10):
             return font
     font = QFont(PIXEL_FONTS[-1], point_size)
     font.setStyleHint(QFont.StyleHint.TypeWriter)
+    return font
+
+
+def font_for(text: str, point_size: int = 10):
+    """The bitmap font when it can draw `text`, the interface font otherwise.
+
+    The test has to be "is this ASCII", not "does the font have the glyph":
+    `QFontMetrics.inFont` answers True for characters Fixedsys then draws as
+    empty boxes, so asking the font is worse than useless. Every readout the
+    pixel themes want to style - speeds, percentages, clock times - is ASCII;
+    everything that is not is a translated label, and those want a real font
+    anyway now that the interface speaks nine languages.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    if text.isascii():
+        return pixel_font(point_size)
+    app = QApplication.instance()
+    font = app.font() if app is not None else QFont()
+    font.setPointSize(point_size + 1)
     return font
 
 

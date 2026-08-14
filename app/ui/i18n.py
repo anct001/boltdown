@@ -8,7 +8,12 @@ string degrades to readable English instead of blowing up.
 
 from __future__ import annotations
 
-LANGUAGES = {"vi": "Tiếng Việt", "en": "English"}
+from .languages import NAMES as _EXTRA_NAMES
+from .languages import TABLES as _EXTRA_TABLES
+
+#: code -> the language's own name for itself, which is what a picker should
+#: show: someone who only reads Korean cannot find "Korean" in an English list.
+LANGUAGES = {"vi": "Tiếng Việt", "en": "English", **_EXTRA_NAMES}
 
 _VI: dict[str, str] = {
     # toolbar / menus
@@ -352,7 +357,8 @@ _VI: dict[str, str] = {
     "Hide drop box": "Ẩn hộp thả",
 }
 
-_TABLES = {"vi": _VI, "en": {}}
+#: English is the key language, so its table is empty by construction.
+_TABLES = {"vi": _VI, "en": {}, **_EXTRA_TABLES}
 
 _current = "vi"
 
