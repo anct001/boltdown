@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import socket
+import sys
 import socketserver
 import threading
 from pathlib import Path
@@ -170,6 +171,42 @@ def send(message: dict[str, Any], timeout: float = CONNECT_TIMEOUT) -> dict[str,
         return decode_line(line.strip())
     except ProtocolError:
         return None
+
+
+def owner_alive() -> bool:
+    """Is the process that published `ipc.json` still on this machine?
+
+    The difference between "nobody is running" and "the running one is busy"
+    decides whether a second window opens. A failed ping cannot tell them
+    apart: a two second timeout is easy to exceed while Windows is enumerating
+    a phone over USB, or while the disk is busy - and the reported symptom was
+    exactly that, a window per attempt after plugging a cable in.
+    """
+    endpoint = read_endpoint()
+    if endpoint is None:
+        return False
+    try:
+        pid = int(endpoint.get("pid") or 0)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0 or pid == os.getpid():
+        return False
+    if sys.platform == "win32":
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:  # pragma: no cover - POSIX path
+        os.kill(pid, 0)
+    except (OSError, ProcessLookupError):
+        return False
+    return True
 
 
 def is_running() -> bool:

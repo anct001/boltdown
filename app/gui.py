@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
@@ -22,10 +23,43 @@ from .util.log import get_logger, setup_logging
 log = get_logger(__name__)
 
 
+#: how patient to be with an instance that is alive but slow to answer
+BUSY_TIMEOUT = 3.0
+BUSY_RETRIES = (0.4, 1.0)
+
+
 def _forward_to_running_instance(urls: list[str]) -> bool:
-    """Hand our arguments to an app that is already up, then bow out."""
-    reply = endpoint.send({"type": TYPE_SHOW, "urls": urls})
-    return reply is not None and reply.get("ok", False)
+    """Hand our arguments to an app that is already up, then bow out.
+
+    A failed ping used to mean "start a second copy". It does not: the probe
+    times out after two seconds, which Windows can spend enumerating a phone
+    that was just plugged in, and the user then gets a second window - then a
+    third, because each new instance republishes the endpoint. Reported as
+    "lots of windows open when I connect my phone by cable".
+
+    So a silent instance is asked again, and if it is demonstrably alive we
+    refuse to open another window at all. A missed hand-over is a smaller
+    failure than a duplicate application.
+    """
+    message = {"type": TYPE_SHOW, "urls": urls}
+    reply = endpoint.send(message)
+    if reply is not None and reply.get("ok", False):
+        return True
+    if not endpoint.owner_alive():
+        return False
+
+    for delay in BUSY_RETRIES:
+        time.sleep(delay)
+        reply = endpoint.send(message, timeout=BUSY_TIMEOUT)
+        if reply is not None and reply.get("ok", False):
+            return True
+        if not endpoint.owner_alive():
+            return False       # it exited while we waited; we are the app now
+
+    log.warning(
+        "an instance is running but did not answer; not opening a second window"
+    )
+    return True
 
 
 #: started by the Run key at login - come up in the tray, not in the way

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -489,3 +490,77 @@ def test_the_registration_is_rewritten_when_it_goes_missing(tmp_path):
 def test_repair_does_nothing_without_an_id():
     assert register.repair([]) == {}
     assert register.repair([None, "", "nonsense"]) == {}
+
+
+# ----------------------------- one application, however slow it is to answer
+
+
+def test_a_live_but_silent_instance_does_not_get_a_second_window(ipc_home, monkeypatch):
+    """Reported as "lots of windows open when I connect my phone by cable".
+
+    Plugging a phone in makes Windows busy enough that a two second IPC probe
+    times out; the launcher read that as "nobody is running" and opened
+    another window - which republished the endpoint, so the next attempt did
+    it again.
+    """
+    from app import gui
+
+    # The parent process: alive, and not this one - which is what an already
+    # running application looks like from a freshly launched copy.
+    (ipc_home / "ipc.json").write_text(
+        json.dumps({"port": 1, "token": "x", "pid": os.getppid()}), encoding="utf-8"
+    )
+    monkeypatch.setattr(gui, "BUSY_RETRIES", (0.0, 0.0))
+    attempts = []
+    monkeypatch.setattr(
+        endpoint, "send", lambda message, **kw: attempts.append(message) or None
+    )
+
+    assert gui._forward_to_running_instance([]) is True, "it opened another window"
+    assert len(attempts) == 3, "it should have asked again before giving up"
+
+
+def test_a_stale_endpoint_still_lets_the_app_start(ipc_home, monkeypatch):
+    """The opposite mistake: refusing to start because of a leftover file."""
+    from app import gui
+
+    (ipc_home / "ipc.json").write_text(
+        json.dumps({"port": 1, "token": "x", "pid": 0x7FFFFFFE}), encoding="utf-8"
+    )
+    monkeypatch.setattr(endpoint, "send", lambda message, **kw: None)
+    assert gui._forward_to_running_instance([]) is False
+
+
+def test_an_instance_that_answers_late_is_still_handed_the_urls(ipc_home, monkeypatch):
+    from app import gui
+
+    (ipc_home / "ipc.json").write_text(
+        json.dumps({"port": 1, "token": "x", "pid": os.getppid()}), encoding="utf-8"
+    )
+    monkeypatch.setattr(gui, "BUSY_RETRIES", (0.0, 0.0))
+    replies = [None, {"ok": True}]
+    monkeypatch.setattr(endpoint, "send", lambda message, **kw: replies.pop(0))
+    assert gui._forward_to_running_instance(["https://x/a.bin"]) is True
+    assert not replies, "it should have stopped as soon as one answered"
+
+
+@windows_only
+def test_owner_alive_can_tell_a_live_pid_from_a_dead_one(ipc_home):
+    (ipc_home / "ipc.json").write_text(
+        json.dumps({"port": 1, "token": "x", "pid": os.getpid()}), encoding="utf-8"
+    )
+    # Our own pid is the one case that means "this very process" - not another
+    # instance - so it is deliberately not treated as alive.
+    assert endpoint.owner_alive() is False
+
+    (ipc_home / "ipc.json").write_text(
+        json.dumps({"port": 1, "token": "x", "pid": 0x7FFFFFFE}), encoding="utf-8"
+    )
+    assert endpoint.owner_alive() is False
+
+    parent = os.getppid()
+    if parent > 0:
+        (ipc_home / "ipc.json").write_text(
+            json.dumps({"port": 1, "token": "x", "pid": parent}), encoding="utf-8"
+        )
+        assert endpoint.owner_alive() is True
