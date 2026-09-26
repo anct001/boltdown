@@ -52,7 +52,14 @@ def firefox_manifest(manifest: dict) -> dict:
     # A service worker would simply never start on Firefox 115.
     manifest["background"] = {"scripts": ["background.js"]}
     manifest["browser_specific_settings"] = {
-        "gecko": {"id": DEFAULT_GECKO_ID, "strict_min_version": MIN_FIREFOX}
+        "gecko": {
+            "id": DEFAULT_GECKO_ID,
+            "strict_min_version": MIN_FIREFOX,
+            # Required by addons.mozilla.org for new add-ons. Everything the
+            # extension reads goes to the application on this machine through
+            # native messaging; nothing is sent to us or anyone else.
+            "data_collection_permissions": {"required": ["none"]},
+        }
     }
     return manifest
 

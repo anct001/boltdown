@@ -330,3 +330,15 @@ def test_a_format_that_is_not_available_is_worth_trying_again():
         error = classify_extraction(permanent)
         assert isinstance(error, ExtractionError), permanent
         assert not isinstance(error, TransientError)
+
+
+def test_the_page_session_does_not_go_to_a_cdn_on_another_site(tmp_path):
+    """The browser's cookies are for the page yt-dlp read, not for whichever
+    host the resolved stream happens to live on."""
+    request = DownloadRequest(
+        url="https://www.youtube.com/watch?v=x", save_dir=tmp_path,
+        cookie="SID=secret", media_kind=MediaKind.SITE,
+    )
+    runner = MediaTaskRunner(1, request)
+    assert runner._track_cookie(Track(url="https://rr1.googlevideo.com/v")) is None
+    assert runner._track_cookie(Track(url="https://m.youtube.com/v")) == "SID=secret"

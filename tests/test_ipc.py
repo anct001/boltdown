@@ -169,15 +169,59 @@ def test_deliver_starts_the_app_when_nobody_answers(monkeypatch):
     monkeypatch.setattr(endpoint, "send", fake_send)
     monkeypatch.setattr(native_host, "launch_app", lambda: True)
     monkeypatch.setattr(native_host, "LAUNCH_POLL", 0.01)
-    assert native_host.deliver({"type": "ping"}) == {"ok": True}
+    assert native_host.deliver({"type": "download", "url": "https://h/a.zip"}) == {"ok": True}
     assert attempts["n"] == 2
 
 
 def test_deliver_reports_a_failed_launch(monkeypatch):
     monkeypatch.setattr(endpoint, "send", lambda message, **kw: None)
     monkeypatch.setattr(native_host, "launch_app", lambda: False)
-    reply = native_host.deliver({"type": "ping"})
+    reply = native_host.deliver({"type": "download", "url": "https://h/a.zip"})
     assert reply["ok"] is False
+
+
+def test_a_ping_never_starts_the_app(monkeypatch):
+    """The popup pings on every open; that must not boot the application."""
+    launched = []
+    monkeypatch.setattr(endpoint, "send", lambda message, **kw: None)
+    monkeypatch.setattr(native_host, "launch_app", lambda: launched.append(1) or True)
+    reply = native_host.deliver({"type": "ping"})
+    assert reply["ok"] is False and reply["running"] is False
+    assert launched == []
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "list"},
+        {"type": "pause"},
+        {"type": "resume", "id": 3},
+        {"type": "show", "urls": ["https://h/a.zip"]},
+        {"type": "download", "url": "file:///C:/Windows/win.ini"},
+        {"type": "download", "url": "javascript:alert(1)"},
+        {"type": "media"},
+        ["not", "an", "object"],
+    ],
+)
+def test_the_browser_may_only_send_what_the_extension_uses(monkeypatch, message):
+    """Remote control belongs to the CLI; a browser message that asks for it,
+    or for a non-http URL, is refused before it reaches the application."""
+    sent = []
+    monkeypatch.setattr(endpoint, "send", lambda m, **kw: sent.append(m) or {"ok": True})
+    monkeypatch.setattr(native_host, "launch_app", lambda: True)
+    reply = native_host.deliver(message)
+    assert reply["ok"] is False and reply["error"]
+    assert sent == []
+
+
+def test_unknown_fields_and_tokens_are_not_relayed(monkeypatch):
+    sent = []
+    monkeypatch.setattr(endpoint, "send", lambda m, **kw: sent.append(m) or {"ok": True})
+    native_host.deliver({
+        "type": "download", "url": "https://h/a.zip", "cookie": "sid=1",
+        "token": "guessed", "id": 5, "urls": ["https://x/"],
+    })
+    assert sent == [{"type": "download", "url": "https://h/a.zip", "cookie": "sid=1"}]
 
 
 def test_host_loop_answers_every_message(monkeypatch):
@@ -446,6 +490,52 @@ def test_an_unreachable_app_leaves_the_browser_download_alone():
     assert trace["cancelled"] == [], "the browser's own download was killed"
     assert trace["erased"] == []
     assert any("browser will fetch it" in message for message in trace["notified"])
+
+
+def test_a_private_window_download_stays_in_the_browser_by_default():
+    trace = run_extension("incognito")
+    assert trace["native"] == [] and trace["cancelled"] == []
+
+
+@pytest.fixture(scope="module")
+def routed() -> dict:
+    return run_extension("router")
+
+
+def test_a_page_cannot_pick_whose_cookies_are_sent(routed):
+    """send-media reads cookies for its URL; from a content script only what
+    that tab itself loaded - or the page - is accepted."""
+    replies = routed["replies"]
+    assert replies["contentForeign"]["ok"] is False
+    sent = [m["url"] for m in routed["native"]]
+    assert "https://bank.example/statement.pdf" not in sent
+    assert replies["contentKnown"]["ok"] is True
+    assert replies["contentPage"]["ok"] is True
+
+
+def test_a_page_cannot_use_the_popup_messages(routed):
+    replies = routed["replies"]
+    assert replies["contentSettings"]["ok"] is False
+    assert replies["contentUrl"]["ok"] is False
+    assert replies["stranger"]["ok"] is False
+    # asking for another tab's media answers about its own tab instead
+    urls = [item["url"] for item in replies["contentOtherTab"]["items"]]
+    assert "https://example.com/page" not in urls
+
+
+def test_settings_accept_only_known_keys_of_the_right_type(routed):
+    settings = routed["replies"]["popupSettings"]
+    assert settings["enabled"] is True and settings["minSize"] == 5
+    assert "bogus" not in settings
+
+
+def test_cookies_come_from_the_tab_s_own_store(routed):
+    """A private tab's link must go out with the private session, not the
+    normal profile's - and a normal tab's with the normal one."""
+    by_url = {q["url"]: q.get("storeId") for q in routed["cookieQueries"]}
+    assert by_url["https://example.com/private.zip"] == "1"
+    assert by_url["https://www.youtube.com/watch?v=abc"] == "0"
+    assert routed["replies"]["popupJs"]["ok"] is False
 
 
 def test_the_script_survives_a_browser_without_onDeterminingFilename():

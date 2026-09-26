@@ -301,7 +301,8 @@ def test_nothing_still_answers_to_the_old_name():
         # application used to be called - the README explains the migration -
         # whereas a file name or a registry key left behind sends the program
         # looking in the wrong place.
-        if path.suffix not in {".py", ".js", ".json", ".toml", ".iss", ".spec"}:
+        # HTML too: the extension popup still called itself IDMClone.
+        if path.suffix not in {".py", ".js", ".json", ".toml", ".iss", ".spec", ".html"}:
             continue
         if path.resolve() == here:
             continue  # this file has to spell the old name to search for it
@@ -397,6 +398,12 @@ def test_each_browser_family_gets_the_manifest_it_understands(tmp_path):
     assert "minimum_chrome_version" not in firefox
     # The extension never claims a version the application does not have.
     assert chrome["version"] == firefox["version"] == __version__
+    # addons.mozilla.org refuses a new add-on that does not say what it collects.
+    gecko = firefox["browser_specific_settings"]["gecko"]
+    assert gecko["data_collection_permissions"] == {"required": ["none"]}
+    # Both packages carry the translations the manifest names itself with.
+    for name in ("chrome", "firefox"):
+        assert (made[name][0] / "_locales" / "en" / "messages.json").is_file()
 
 
 def test_both_variants_carry_the_whole_extension(tmp_path):

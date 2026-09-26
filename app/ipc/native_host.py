@@ -18,13 +18,32 @@ from typing import Any
 
 from ..util.log import get_logger, setup_logging
 from . import endpoint
-from .protocol import ProtocolError, read_native, write_native
+from .protocol import (
+    TYPE_DOWNLOAD,
+    TYPE_MEDIA,
+    TYPE_PING,
+    ProtocolError,
+    read_native,
+    write_native,
+)
 
 log = get_logger(__name__)
 
 LAUNCH_TIMEOUT = 20.0
 LAUNCH_POLL = 0.25
 
+
+#: what a browser may ask for. The loopback endpoint also answers `list`,
+#: `pause`, `resume` and `show` for `boltdown-cli --remote-*`; none of those
+#: is the extension's business, and relaying them would let any script that
+#: gets hold of the extension's messaging read the download list or stop it.
+BROWSER_TYPES = frozenset({TYPE_PING, TYPE_DOWNLOAD, TYPE_MEDIA})
+#: fields the application reads from a browser message; anything else - a
+#: `token` above all - is dropped rather than forwarded
+BROWSER_FIELDS = frozenset(
+    {"type", "url", "filename", "referer", "cookie", "user_agent", "size",
+     "mime", "streaming", "page"}
+)
 
 GUI_EXE_NAME = "Boltdown.exe" if sys.platform == "win32" else "Boltdown"
 
@@ -70,11 +89,39 @@ def launch_app() -> bool:
         return False
 
 
+def screen(message: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """The part of a browser message worth relaying, or why there is none."""
+    if not isinstance(message, dict):
+        return None, "a message must be a JSON object"
+    kind = message.get("type")
+    if kind not in BROWSER_TYPES:
+        return None, f"message type not allowed from the browser: {kind!r}"
+    clean = {key: value for key, value in message.items() if key in BROWSER_FIELDS}
+    if kind != TYPE_PING:
+        url = clean.get("url")
+        if not isinstance(url, str) or not url.strip().lower().startswith(
+            ("http://", "https://")
+        ):
+            return None, "only http(s) URLs are accepted"
+    return clean, None
+
+
 def deliver(message: dict[str, Any]) -> dict[str, Any]:
     """Relay one message, starting the app on the first miss."""
+    message, problem = screen(message)
+    if message is None:
+        log.warning("refused a browser message: %s", problem)
+        return {"ok": False, "error": problem}
+
     reply = endpoint.send(message)
     if reply is not None:
         return reply
+
+    # The popup pings every time it opens, just to show whether the app is
+    # up. Starting the whole application for that - and holding the popup
+    # for twenty seconds while it boots - answers a question nobody asked.
+    if message["type"] == TYPE_PING:
+        return {"ok": False, "error": "Boltdown is not running", "running": False}
 
     if not launch_app():
         return {"ok": False, "error": "Boltdown is not installed correctly"}

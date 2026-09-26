@@ -1,0 +1,111 @@
+{
+  "extName": {
+    "message": "Boltdown Integration"
+  },
+  "extDescription": {
+    "message": "Chuyển tải xuống và link media từ trình duyệt sang trình quản lý tải Boltdown."
+  },
+  "pageVideoName": {
+    "message": "Video của trang này (yt-dlp)"
+  },
+  "handoverFailed": {
+    "message": "Không chuyển được sang Boltdown - trình duyệt sẽ tự tải: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "host not found"
+      }
+    }
+  },
+  "unknownError": {
+    "message": "lỗi không rõ"
+  },
+  "menuLink": {
+    "message": "Tải link này bằng Boltdown"
+  },
+  "menuMedia": {
+    "message": "Tải media này bằng Boltdown"
+  },
+  "menuPage": {
+    "message": "Tải mọi link trên trang này"
+  },
+  "menuSelection": {
+    "message": "Tải các link vừa bôi đen"
+  },
+  "extensionOff": {
+    "message": "Tiện ích đang tắt trong popup."
+  },
+  "pageUnreadable": {
+    "message": "Không đọc được trang: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "no access"
+      }
+    }
+  },
+  "noLinks": {
+    "message": "Không thấy link nào."
+  },
+  "sentLinks": {
+    "message": "Đã gửi $SENT$/$TOTAL$ link sang Boltdown.",
+    "placeholders": {
+      "sent": {
+        "content": "$1",
+        "example": "3"
+      },
+      "total": {
+        "content": "$2",
+        "example": "5"
+      }
+    }
+  },
+  "fabLabel": {
+    "message": "Tải video này"
+  },
+  "fabHide": {
+    "message": "Ẩn đến trang sau"
+  },
+  "noMediaOnPage": {
+    "message": "Chưa thấy media nào trên trang này."
+  },
+  "download": {
+    "message": "Tải"
+  },
+  "popupCapture": {
+    "message": "Bắt link tải xuống"
+  },
+  "popupDetect": {
+    "message": "Phát hiện video trên trang"
+  },
+  "popupShowButton": {
+    "message": "Hiện nút nổi trên trang"
+  },
+  "popupIncognito": {
+    "message": "Bắt cả trong cửa sổ ẩn danh"
+  },
+  "popupMediaHeading": {
+    "message": "Media trên tab này"
+  },
+  "popupNoMedia": {
+    "message": "Không có media nào."
+  },
+  "popupSendPage": {
+    "message": "Tải địa chỉ trang hiện tại"
+  },
+  "popupSent": {
+    "message": "Đã gửi ✓"
+  },
+  "popupError": {
+    "message": "Lỗi!"
+  },
+  "statusNotRunning": {
+    "message": "chưa chạy"
+  },
+  "popupNeedsPermission": {
+    "message": "Boltdown cần quyền truy cập trang web để bắt link tải và tìm video."
+  },
+  "popupGrant": {
+    "message": "Cho phép"
+  }
+}

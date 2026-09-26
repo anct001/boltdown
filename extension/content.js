@@ -12,6 +12,21 @@
   let host = null;
   let root = null;
   let panel = null;
+  // "Hide" lasts until the next page, and a navigation inside a single-page
+  // app is a new page as far as the user is concerned.
+  let hiddenFor = null;
+
+  function t(key) {
+    try {
+      return chrome.i18n.getMessage(key) || key;
+    } catch (error) {
+      return key;
+    }
+  }
+
+  function hidden() {
+    return hiddenFor !== null && hiddenFor === location.href;
+  }
 
   const STYLE = `
     :host { all: initial; }
@@ -24,6 +39,14 @@
       box-shadow: 0 4px 14px rgba(0,0,0,.35);
     }
     .fab:hover { background: #0d47a1; }
+    .fab:focus-visible, .go:focus-visible, .hide:focus-visible {
+      outline: 2px solid #ffb300; outline-offset: 2px;
+    }
+    .hide {
+      margin-left: 2px; border: none; background: transparent; color: inherit;
+      cursor: pointer; font: inherit; opacity: .75; padding: 0 2px;
+    }
+    .hide:hover { opacity: 1; }
     .badge {
       background: rgba(255,255,255,.25); border-radius: 10px;
       padding: 1px 7px; font-size: 12px;
@@ -47,6 +70,12 @@
       border-radius: 6px; padding: 5px 10px; font-size: 12px;
     }
     .empty { padding: 12px; color: #607d8b; }
+    @media (prefers-color-scheme: dark) {
+      .panel { background: #263238; color: #eceff1; }
+      .panel h4 { background: #37474f; }
+      .row { border-top-color: #37474f; }
+      .empty { color: #b0bec5; }
+    }
   `;
 
   function ensureHost() {
@@ -60,14 +89,43 @@
     document.documentElement.appendChild(host);
   }
 
+  function removeButton() {
+    closePanel();
+    const fab = root && root.querySelector(".fab");
+    if (fab) fab.remove();
+  }
+
   function ensureButton(count) {
+    if (hidden()) return;
     ensureHost();
     let fab = root.querySelector(".fab");
     if (!fab) {
-      fab = document.createElement("button");
+      fab = document.createElement("div");
       fab.className = "fab";
-      fab.innerHTML = '<span>Tải video này</span><span class="badge"></span>';
+      fab.setAttribute("role", "button");
+      fab.tabIndex = 0;
+      const label = document.createElement("span");
+      label.textContent = t("fabLabel");
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      const hide = document.createElement("button");
+      hide.className = "hide";
+      hide.textContent = "\u00d7";
+      hide.title = t("fabHide");
+      hide.setAttribute("aria-label", t("fabHide"));
+      hide.addEventListener("click", (event) => {
+        event.stopPropagation();
+        hiddenFor = location.href;
+        removeButton();
+      });
+      fab.append(label, badge, hide);
       fab.addEventListener("click", togglePanel);
+      fab.addEventListener("keydown", (event) => {
+        if (event.target === fab && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          togglePanel();
+        }
+      });
       root.appendChild(fab);
     }
     fab.querySelector(".badge").textContent = String(count);
@@ -85,10 +143,15 @@
       closePanel();
       return;
     }
-    const reply = await chrome.runtime.sendMessage({
-      type: "get-media",
-      pageUrl: location.href
-    });
+    let reply = null;
+    try {
+      reply = await chrome.runtime.sendMessage({ type: "get-media" });
+    } catch (error) {
+      // The extension was reloaded under this page; nothing to show.
+      removeButton();
+      return;
+    }
+    if (panel) return; // a second click while we were waiting
     const items = (reply && reply.items) || [];
 
     panel = document.createElement("div");
@@ -100,7 +163,7 @@
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "Chưa thấy media nào trên trang này.";
+      empty.textContent = t("noMediaOnPage");
       panel.appendChild(empty);
     }
 
@@ -121,18 +184,22 @@
 
       const button = document.createElement("button");
       button.className = "go";
-      button.textContent = "Tải";
+      button.textContent = t("download");
       button.addEventListener("click", async () => {
         button.disabled = true;
         button.textContent = "...";
-        const response = await chrome.runtime.sendMessage({
-          type: "send-media",
-          url: item.url,
-          streaming: item.streaming,
-          page: item.page,
-          referer: location.href
-        });
-        button.textContent = response && response.ok ? "✓" : "!";
+        let response = null;
+        try {
+          response = await chrome.runtime.sendMessage({
+            type: "send-media",
+            url: item.url
+          });
+        } catch (error) {
+          response = null;
+        }
+        const ok = Boolean(response && response.ok);
+        button.textContent = ok ? "\u2713" : "!";
+        if (!ok && response && response.error) button.title = response.error;
       });
 
       row.appendChild(label);
@@ -143,7 +210,8 @@
     root.appendChild(panel);
   }
 
-  chrome.runtime.onMessage.addListener((message) => {
+  chrome.runtime.onMessage.addListener((message, sender) => {
+    if (sender && sender.id !== chrome.runtime.id) return;
     if (message && message.type === "media-count" && message.count > 0) {
       ensureButton(message.count);
     }
@@ -152,12 +220,14 @@
   // On a site yt-dlp handles, the button must appear even when the page never
   // issues a request our sniffer recognises.
   chrome.runtime
-    .sendMessage({ type: "get-media", pageUrl: location.href })
+    .sendMessage({ type: "get-media" })
     .then((reply) => {
       const items = (reply && reply.items) || [];
-      if (items.length) ensureButton(items.length);
+      if (items.length && reply.showButton !== false) ensureButton(items.length);
     })
     .catch(() => {});
 
-  window.addEventListener("beforeunload", closePanel);
+  // pagehide rather than beforeunload: a beforeunload listener keeps the page
+  // out of the back/forward cache in some browsers.
+  window.addEventListener("pagehide", closePanel);
 })();

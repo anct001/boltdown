@@ -76,3 +76,49 @@ def test_javascript_parses(script):
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+LOCALES = EXTENSION / "_locales"
+
+
+def _catalogue(lang: str) -> dict:
+    return json.loads((LOCALES / lang / "messages.json").read_text(encoding="utf-8"))
+
+
+def test_every_locale_has_the_same_keys_and_placeholders(manifest):
+    assert (LOCALES / manifest["default_locale"] / "messages.json").is_file()
+    english = _catalogue("en")
+    for folder in LOCALES.iterdir():
+        other = _catalogue(folder.name)
+        assert set(other) == set(english), folder.name
+        for key, entry in english.items():
+            assert set(entry.get("placeholders", {})) == set(
+                other[key].get("placeholders", {})
+            ), f"{folder.name}:{key}"
+            for name in entry.get("placeholders", {}):
+                assert f"${name.upper()}$" in other[key]["message"], f"{folder.name}:{key}"
+
+
+def test_every_message_the_code_asks_for_exists(manifest):
+    import re
+
+    english = _catalogue("en")
+    wanted = set()
+    for script in ("background.js", "content.js", "popup/popup.js"):
+        source = (EXTENSION / script).read_text(encoding="utf-8")
+        wanted |= set(re.findall(r'\bt\("([A-Za-z0-9_]+)"', source))
+    html = (EXTENSION / "popup" / "popup.html").read_text(encoding="utf-8")
+    wanted |= set(re.findall(r'data-i18n="([A-Za-z0-9_]+)"', html))
+    for value in (manifest["name"], manifest["description"]):
+        wanted |= set(re.findall(r"__MSG_([A-Za-z0-9_]+)__", value))
+    assert wanted, "the extension is not localised any more?"
+    assert wanted <= set(english), sorted(wanted - set(english))
+
+
+def test_no_page_script_writes_html_from_strings():
+    """Everything the extension shows comes from pages it does not control;
+    building DOM with textContent is what keeps a hostile file name inert."""
+    for script in ("background.js", "content.js", "popup/popup.js"):
+        source = (EXTENSION / script).read_text(encoding="utf-8")
+        assert "innerHTML" not in source and "insertAdjacentHTML" not in source, script
+
