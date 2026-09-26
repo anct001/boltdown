@@ -1,10 +1,30 @@
 /* Popup: toggles, host status, and the media found on the active tab. */
 
 const statusEl = document.getElementById("status");
-const enabledEl = document.getElementById("enabled");
-const captureEl = document.getElementById("captureMedia");
 const mediaEl = document.getElementById("media");
 const sendPageEl = document.getElementById("sendPage");
+const permissionEl = document.getElementById("permission");
+const grantEl = document.getElementById("grant");
+const incognitoRowEl = document.getElementById("incognitoRow");
+
+/** Settings shown as checkboxes, by element id. */
+const TOGGLES = ["enabled", "captureMedia", "showButton", "captureIncognito"];
+const SITE_ORIGINS = ["http://*/*", "https://*/*"];
+
+function t(key) {
+  try {
+    return chrome.i18n.getMessage(key) || key;
+  } catch (error) {
+    return key;
+  }
+}
+
+function localise() {
+  document.documentElement.lang = t("@@ui_locale").replace("_", "-");
+  for (const el of document.querySelectorAll("[data-i18n]")) {
+    el.textContent = t(el.dataset.i18n);
+  }
+}
 
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -18,8 +38,9 @@ function setStatus(text, kind) {
 
 async function loadSettings() {
   const settings = await chrome.runtime.sendMessage({ type: "get-settings" });
-  enabledEl.checked = Boolean(settings.enabled);
-  captureEl.checked = Boolean(settings.captureMedia);
+  for (const id of TOGGLES) {
+    document.getElementById(id).checked = Boolean(settings[id]);
+  }
 }
 
 async function checkHost() {
@@ -27,7 +48,42 @@ async function checkHost() {
   if (reply && reply.ok) {
     setStatus(`v${reply.version || "?"}`, "ok");
   } else {
-    setStatus("chưa chạy", "bad");
+    setStatus(t("statusNotRunning"), "bad");
+    if (reply && reply.error) statusEl.title = reply.error;
+  }
+}
+
+/**
+ * Firefox before 127 installs an MV3 add-on *without* its host permissions,
+ * and without them there are no cookies, no sniffing and no floating button.
+ * The user has to grant them, and only from a click.
+ */
+async function checkPermission() {
+  if (!chrome.permissions || !chrome.permissions.contains) return;
+  let granted = true;
+  try {
+    granted = await chrome.permissions.contains({ origins: SITE_ORIGINS });
+  } catch (error) {
+    granted = true;
+  }
+  permissionEl.hidden = granted;
+}
+
+grantEl.addEventListener("click", () => {
+  chrome.permissions
+    .request({ origins: SITE_ORIGINS })
+    .then((granted) => {
+      permissionEl.hidden = Boolean(granted);
+    })
+    .catch(() => {});
+});
+
+async function checkIncognito() {
+  // Only worth offering when the user let the extension into private windows.
+  try {
+    incognitoRowEl.hidden = !(await chrome.extension.isAllowedIncognitoAccess());
+  } catch (error) {
+    incognitoRowEl.hidden = true;
   }
 }
 
@@ -35,16 +91,15 @@ async function loadMedia() {
   const tab = await activeTab();
   const reply = await chrome.runtime.sendMessage({
     type: "get-media",
-    tabId: tab ? tab.id : -1,
-    pageUrl: tab ? tab.url : undefined
+    tabId: tab ? tab.id : -1
   });
   const items = (reply && reply.items) || [];
-  mediaEl.innerHTML = "";
+  mediaEl.replaceChildren();
 
   if (!items.length) {
     const empty = document.createElement("li");
     empty.className = "empty";
-    empty.textContent = "Không có media nào.";
+    empty.textContent = t("popupNoMedia");
     mediaEl.appendChild(empty);
     return;
   }
@@ -64,17 +119,16 @@ async function loadMedia() {
     }
 
     const button = document.createElement("button");
-    button.textContent = "Tải";
+    button.textContent = t("download");
     button.addEventListener("click", async () => {
       button.disabled = true;
       const response = await chrome.runtime.sendMessage({
         type: "send-media",
-        url: item.url,
-        streaming: item.streaming,
-        page: item.page,
-        referer: tab ? tab.url : undefined
+        tabId: tab ? tab.id : -1,
+        url: item.url
       });
       button.textContent = response && response.ok ? "✓" : "!";
+      if (response && !response.ok && response.error) button.title = response.error;
     });
 
     row.appendChild(label);
@@ -83,31 +137,30 @@ async function loadMedia() {
   });
 }
 
-enabledEl.addEventListener("change", () =>
-  chrome.runtime.sendMessage({
-    type: "set-settings",
-    patch: { enabled: enabledEl.checked }
-  })
-);
-
-captureEl.addEventListener("change", () =>
-  chrome.runtime.sendMessage({
-    type: "set-settings",
-    patch: { captureMedia: captureEl.checked }
-  })
-);
+for (const id of TOGGLES) {
+  const el = document.getElementById(id);
+  el.addEventListener("change", () =>
+    chrome.runtime.sendMessage({ type: "set-settings", patch: { [id]: el.checked } })
+  );
+}
 
 sendPageEl.addEventListener("click", async () => {
   const tab = await activeTab();
   if (!tab || !/^https?:/i.test(tab.url || "")) return;
-  const response = await chrome.runtime.sendMessage({
-    type: "send-url",
-    url: tab.url,
-    referer: tab.url
-  });
-  sendPageEl.textContent = response && response.ok ? "Đã gửi ✓" : "Lỗi!";
+  sendPageEl.disabled = true;
+  // On a site yt-dlp reads, "the page" means the video on it.
+  const media = await chrome.runtime.sendMessage({ type: "get-media", tabId: tab.id });
+  const page = ((media && media.items) || []).find((m) => m.page && m.url === tab.url);
+  const response = page
+    ? await chrome.runtime.sendMessage({ type: "send-media", tabId: tab.id, url: tab.url })
+    : await chrome.runtime.sendMessage({ type: "send-url", tabId: tab.id, url: tab.url });
+  sendPageEl.textContent = response && response.ok ? t("popupSent") : t("popupError");
+  sendPageEl.disabled = false;
 });
 
+localise();
 loadSettings();
 checkHost();
+checkPermission();
+checkIncognito();
 loadMedia();

@@ -1,0 +1,111 @@
+{
+  "extName": {
+    "message": "Boltdown Integration"
+  },
+  "extDescription": {
+    "message": "Send browser downloads and media links to the Boltdown download manager."
+  },
+  "pageVideoName": {
+    "message": "Video on this page (yt-dlp)"
+  },
+  "handoverFailed": {
+    "message": "Could not hand over the download - the browser will fetch it: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "host not found"
+      }
+    }
+  },
+  "unknownError": {
+    "message": "unknown error"
+  },
+  "menuLink": {
+    "message": "Download this link with Boltdown"
+  },
+  "menuMedia": {
+    "message": "Download this media with Boltdown"
+  },
+  "menuPage": {
+    "message": "Download every link on this page"
+  },
+  "menuSelection": {
+    "message": "Download the selected links"
+  },
+  "extensionOff": {
+    "message": "The extension is switched off in its popup."
+  },
+  "pageUnreadable": {
+    "message": "Could not read the page: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "no access"
+      }
+    }
+  },
+  "noLinks": {
+    "message": "No links found."
+  },
+  "sentLinks": {
+    "message": "Sent $SENT$/$TOTAL$ links to Boltdown.",
+    "placeholders": {
+      "sent": {
+        "content": "$1",
+        "example": "3"
+      },
+      "total": {
+        "content": "$2",
+        "example": "5"
+      }
+    }
+  },
+  "fabLabel": {
+    "message": "Download this video"
+  },
+  "fabHide": {
+    "message": "Hide until the next page"
+  },
+  "noMediaOnPage": {
+    "message": "No media seen on this page yet."
+  },
+  "download": {
+    "message": "Download"
+  },
+  "popupCapture": {
+    "message": "Capture downloads"
+  },
+  "popupDetect": {
+    "message": "Detect videos on pages"
+  },
+  "popupShowButton": {
+    "message": "Show the floating button"
+  },
+  "popupIncognito": {
+    "message": "Capture in private windows"
+  },
+  "popupMediaHeading": {
+    "message": "Media on this tab"
+  },
+  "popupNoMedia": {
+    "message": "No media."
+  },
+  "popupSendPage": {
+    "message": "Download the current page address"
+  },
+  "popupSent": {
+    "message": "Sent ✓"
+  },
+  "popupError": {
+    "message": "Error!"
+  },
+  "statusNotRunning": {
+    "message": "not running"
+  },
+  "popupNeedsPermission": {
+    "message": "Boltdown needs access to websites to capture downloads and find videos."
+  },
+  "popupGrant": {
+    "message": "Allow access"
+  }
+}

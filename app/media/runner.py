@@ -28,7 +28,7 @@ from typing import Callable
 
 from ..core.categories import target_dir
 from ..core.errors import CancelledByUser, DownloadError, FatalError
-from ..core.http_client import build_client
+from ..core.http_client import build_client, cookie_allowed
 from ..core.ratelimit import ChainedBucket, TokenBucket
 from ..core.task import (
     DownloadRequest,
@@ -280,6 +280,14 @@ class MediaTaskRunner:
         self.filename = output.name
         return output
 
+    def _track_cookie(self, track: ytdlp.Track) -> str | None:
+        """The browser's cookies are for the page; a track on another site
+        (a CDN yt-dlp resolved to) gets whatever yt-dlp scoped for it in
+        `track.headers`, not the page's session."""
+        if self.request.cookie and cookie_allowed(self.request.url, track.url):
+            return self.request.cookie
+        return None
+
     async def _download_track(self, track: ytdlp.Track, target: Path) -> Path:
         """Fetch one track, reusing the ordinary engine for plain URLs."""
         if target.exists():
@@ -291,6 +299,7 @@ class MediaTaskRunner:
             spec = self.request.to_spec()
             spec.url = track.url
             spec.headers = {**spec.headers, **track.headers}
+            spec.cookie = self._track_cookie(track)
             async with build_client(
                 spec, max_connections=self.request.connections + 4
             ) as client:
@@ -322,7 +331,7 @@ class MediaTaskRunner:
             speed_limit=None,  # the shared bucket already limits this task
             use_categories=False,
             headers={**self.request.headers, **track.headers},
-            cookie=self.request.cookie,
+            cookie=self._track_cookie(track),
             referer=self.request.referer,
             user_agent=self.request.user_agent,
             proxy=self.request.proxy,

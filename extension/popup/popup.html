@@ -1,33 +1,46 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html>
   <head>
     <meta charset="utf-8" />
-    <title>IDMClone</title>
+    <title>Boltdown</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <header>
       <img src="../icons/icon32.png" alt="" width="24" height="24" />
-      <h1>IDMClone</h1>
+      <h1>Boltdown</h1>
       <span id="status" class="status">...</span>
     </header>
 
+    <div id="permission" class="notice" hidden>
+      <p data-i18n="popupNeedsPermission"></p>
+      <button id="grant" data-i18n="popupGrant"></button>
+    </div>
+
     <label class="switch">
       <input type="checkbox" id="enabled" />
-      <span>Bắt link tải xuống</span>
+      <span data-i18n="popupCapture"></span>
     </label>
     <label class="switch">
       <input type="checkbox" id="captureMedia" />
-      <span>Phát hiện video trên trang</span>
+      <span data-i18n="popupDetect"></span>
+    </label>
+    <label class="switch">
+      <input type="checkbox" id="showButton" />
+      <span data-i18n="popupShowButton"></span>
+    </label>
+    <label class="switch" id="incognitoRow" hidden>
+      <input type="checkbox" id="captureIncognito" />
+      <span data-i18n="popupIncognito"></span>
     </label>
 
     <section>
-      <h2>Media trên tab này</h2>
+      <h2 data-i18n="popupMediaHeading"></h2>
       <ul id="media"></ul>
     </section>
 
     <footer>
-      <button id="sendPage">Tải địa chỉ trang hiện tại</button>
+      <button id="sendPage" data-i18n="popupSendPage"></button>
     </footer>
 
     <script src="popup.js"></script>

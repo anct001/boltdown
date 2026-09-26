@@ -257,6 +257,11 @@ Lưu ý: bản add-on chưa ký chỉ nạp tạm được (mất khi đóng Fir
 dài thì phải ký qua addons.mozilla.org, hoặc dùng Firefox Developer Edition /
 Nightly với `xpinstall.signatures.required=false`.
 
+Firefox 115–126 cài add-on MV3 **mà không cấp quyền truy cập trang web**; thiếu
+quyền đó thì không có cookie, không bắt được video và không có nút nổi. Popup
+sẽ hiện dòng báo và nút **Cho phép** để cấp. Với Firefox Multi-Account
+Containers, cookie được lấy từ đúng container của tab.
+
 ### Sau khi cài xong
 
 Bấm một link tải bất kỳ trong trình duyệt — extension huỷ download của
@@ -266,7 +271,8 @@ hiện khi trang có media: link `.m3u8`/`.mpd` đi thẳng vào pipeline video,
 YouTube/Vimeo/TikTok... extension gửi **URL của trang** để app hỏi yt-dlp (URL
 segment của mấy site này có chữ ký, sniff về cũng vô dụng).
 
-Nếu app chưa chạy, native host tự khởi động nó rồi mới chuyển link. Chạy
+Nếu app chưa chạy, native host tự khởi động nó rồi mới chuyển link (riêng việc
+mở popup chỉ hỏi trạng thái, không khởi động app). Chạy
 `python -m app <url>` khi app đang mở thì URL được đẩy vào cửa sổ có sẵn thay vì
 mở cửa sổ thứ hai.
 
@@ -283,6 +289,25 @@ Extension ──────native messaging (4-byte length + JSON trên stdio)�
 Token nằm trong `%LOCALAPPDATA%\Boltdown\ipc.json`; mọi tin nhắn không có token
 đúng đều bị từ chối, nên tiến trình của người dùng khác trên cùng máy không điều
 khiển được app dù cổng loopback về mặt kỹ thuật vẫn kết nối được.
+
+Những giới hạn an toàn khác:
+
+- **Native host chỉ chuyển `ping`, `download`, `media`** với URL http(s), và chỉ
+  các trường app thực sự đọc. Các lệnh điều khiển (`list`, `pause`, `resume`,
+  `show`) là của `boltdown-cli`, trình duyệt không gọi được.
+- **Trang web không chọn được cookie của ai bị gửi đi.** Content script chỉ được
+  gửi media mà chính tab đó đã tải (hoặc địa chỉ trang); cài đặt, gửi URL tuỳ ý
+  và hỏi tab khác là việc riêng của popup.
+- **Cookie đúng danh tính:** link trong cửa sổ ẩn danh đi với cookie ẩn danh,
+  link trong container Firefox đi với cookie của container đó.
+- **Cửa sổ ẩn danh không bị bắt mặc định** — bật "Bắt cả trong cửa sổ ẩn danh"
+  trong popup nếu muốn (chỉ hiện khi đã cho phép tiện ích chạy ở chế độ ẩn danh).
+- **Cookie chỉ đi tới đúng site:** app gắn cookie của trình duyệt cho từng
+  request, giữ nó qua redirect trong cùng site (trước đây httpx bỏ cookie ở mọi
+  redirect, nên file sau đăng nhập tải về thành trang login) và không gửi nó
+  sang site khác — kể cả CDN mà yt-dlp trỏ tới — hay xuống http thường.
+
+Giao diện extension có tiếng Anh và tiếng Việt, theo ngôn ngữ của trình duyệt.
 
 ## Dùng bằng dòng lệnh
 
