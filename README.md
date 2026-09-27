@@ -271,6 +271,22 @@ hiện khi trang có media: link `.m3u8`/`.mpd` đi thẳng vào pipeline video,
 YouTube/Vimeo/TikTok... extension gửi **URL của trang** để app hỏi yt-dlp (URL
 segment của mấy site này có chữ ký, sniff về cũng vô dụng).
 
+Những thứ dùng hằng ngày, giống IDM:
+
+- **Nút "Tải video này" nằm ngay trên video** khi rê chuột vào trình phát, bấm
+  là ra danh sách kèm dung lượng và định dạng. Nút nổi ở góc chỉ còn dành cho
+  trang không có trình phát (nhạc, stream, trang yt-dlp) và ẩn được bằng ×.
+- **Chuột phải → "Tải các link trên trang này…"** (hoặc `Alt+Shift+L`) mở một
+  cửa sổ chọn link: lọc theo tên, bật/tắt theo loại (video, nhạc, file nén, tài
+  liệu, ảnh, chương trình, trang). Link điều hướng không được chọn sẵn. Các link
+  đã chọn đi sang app trong **một** tin nhắn và không hỏi lại từng link.
+- `Alt+Shift+D` tải video trên trang hiện tại.
+- Popup có công tắc **"Bắt link trên <trang này>"**; trang **Cài đặt** của
+  tiện ích có danh sách trang loại trừ, loại file bỏ qua và dung lượng tối thiểu.
+- Danh sách media nhận ra video qua `Content-Type` (kể cả URL không có đuôi),
+  bỏ qua segment `.ts`/`.m4s` và file quá nhỏ, và không bao giờ để segment đẩy
+  playlist `.m3u8` ra khỏi danh sách.
+
 Nếu app chưa chạy, native host tự khởi động nó rồi mới chuyển link (riêng việc
 mở popup chỉ hỏi trạng thái, không khởi động app). Chạy
 `python -m app <url>` khi app đang mở thì URL được đẩy vào cửa sổ có sẵn thay vì
@@ -308,6 +324,36 @@ Những giới hạn an toàn khác:
   sang site khác — kể cả CDN mà yt-dlp trỏ tới — hay xuống http thường.
 
 Giao diện extension có tiếng Anh và tiếng Việt, theo ngôn ngữ của trình duyệt.
+
+### Đo hiệu năng
+
+```bash
+npm install playwright            # ở đâu cũng được, rồi trỏ NODE_PATH vào đó
+NODE_PATH=path/to/node_modules python scripts/bench_browser.py --runs 5
+```
+
+Chạy Chromium thật với bản extension đã build, native host thật và endpoint IPC
+thật (chỉ thay cửa sổ app bằng một bản ghi). Phần bắt download chạy trên một
+Chromium không gắn công cụ tự động nào: dưới Playwright, trình duyệt tự xử lý
+download theo cách khác và `onDeterminingFilename` không bao giờ được gọi.
+`tests/test_browser_e2e.py` chạy bài đo này và giữ các ngưỡng; test tự bỏ qua
+trên máy không có Chromium/Playwright. Kết quả đo trên Linux, máy chủ web cục bộ
+phát file ở 12 MB/s:
+
+| | trước | sau |
+|---|---|---|
+| trình duyệt yêu cầu file → app có URL (trung vị) | 70 ms | 10 ms |
+| dữ liệu trình duyệt tải thừa trước khi nhả file | 960 KB | 256 KB |
+| "tải mọi link" với 52 link | 52 tin nhắn, 3.0 s | 1 tin nhắn, 0.03 s |
+| trang HLS tải 60 segment | playlist bị đẩy mất | chỉ còn playlist |
+| video chỉ lộ qua `Content-Type` | không thấy | thấy, kèm dung lượng |
+
+Phần lớn chênh lệch về tốc độ đến từ việc giữ **một** tiến trình native host cho
+cả phiên (`connectNative`) thay vì khởi động một tiến trình Python mới cho mỗi
+link. Trên Windows, bản đóng gói khởi động chậm hơn nhiều, nên mức chênh ở đó
+sẽ lớn hơn, nhưng con số đó chưa được đo. Ngoài ra, download của trình duyệt bị
+**tạm dừng** ngay khi được phát hiện, trong lúc hỏi app: nếu app không trả lời
+thì download được chạy tiếp, không bị mất.
 
 ## Dùng bằng dòng lệnh
 

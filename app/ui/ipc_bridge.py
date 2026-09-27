@@ -21,6 +21,8 @@ from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from .. import __version__
 from ..ipc.protocol import (
+    MAX_BATCH,
+    TYPE_BATCH,
     TYPE_DOWNLOAD,
     TYPE_LIST,
     TYPE_MEDIA,
@@ -60,6 +62,8 @@ class _Call:
 
 class IpcBridge(QObject):
     downloadRequested = Signal(dict)
+    #: many links from the extension's picker, already chosen by the user
+    batchRequested = Signal(dict)
     showRequested = Signal(dict)
     #: control messages from `boltdown-cli --remote-*`, answered synchronously
     controlRequested = Signal(dict)
@@ -106,6 +110,22 @@ class IpcBridge(QObject):
             log.info("captured %s from the browser: %s", kind, url)
             self.downloadRequested.emit(message)
             return {"ok": True, "accepted": url}
+
+        if kind == TYPE_BATCH:
+            items = message.get("items")
+            if not isinstance(items, list) or not items or len(items) > MAX_BATCH:
+                return {"ok": False, "error": "a batch needs 1 to %d links" % MAX_BATCH}
+            urls = [
+                item for item in items
+                if isinstance(item, dict)
+                and isinstance(item.get("url"), str)
+                and item["url"].startswith(("http://", "https://"))
+            ]
+            if len(urls) != len(items):
+                return {"ok": False, "error": "only http(s) URLs are accepted"}
+            log.info("captured a batch of %d links from the browser", len(items))
+            self.batchRequested.emit(message)
+            return {"ok": True, "accepted": len(items)}
 
         if kind == TYPE_LIST:
             # Answering needs controller state, so the window installs a

@@ -1,0 +1,71 @@
+:root {
+  color-scheme: light dark;
+  --muted: #607d8b;
+  --line: rgba(128, 128, 128, 0.35);
+}
+
+body {
+  max-width: 560px;
+  margin: 0;
+  padding: 14px 18px;
+  font: 13px/1.5 system-ui, "Segoe UI", sans-serif;
+}
+
+h1 {
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.field input,
+.field textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.field input {
+  max-width: 140px;
+}
+
+small,
+.shortcuts {
+  color: var(--muted);
+}
+
+.saved {
+  min-height: 1.5em;
+  color: #2e7d32;
+}
+
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #ffb300;
+  outline-offset: 1px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --muted: #b0bec5;
+  }
+
+  .saved {
+    color: #81c784;
+  }
+}

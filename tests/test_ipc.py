@@ -214,6 +214,40 @@ def test_the_browser_may_only_send_what_the_extension_uses(monkeypatch, message)
     assert sent == []
 
 
+def test_a_batch_is_relayed_with_only_its_urls_and_cookies(monkeypatch):
+    sent = []
+    monkeypatch.setattr(endpoint, "send", lambda m, **kw: sent.append(m) or {"ok": True})
+    native_host.deliver({
+        "type": "batch", "referer": "https://h/",
+        "items": [{"url": "https://h/a.zip", "cookie": "s=1", "evil": 1}, {"url": "https://h/b.zip"}],
+    })
+    assert sent == [{"type": "batch", "referer": "https://h/", "items": [
+        {"url": "https://h/a.zip", "cookie": "s=1"}, {"url": "https://h/b.zip"}]}]
+
+
+@pytest.mark.parametrize("items", [
+    [], "nope", [{"url": "file:///etc/passwd"}], [{"url": "https://h/a"}] * 2001, ["https://h/a"],
+])
+def test_a_bad_batch_is_refused(monkeypatch, items):
+    sent = []
+    monkeypatch.setattr(endpoint, "send", lambda m, **kw: sent.append(m) or {"ok": True})
+    assert native_host.deliver({"type": "batch", "items": items})["ok"] is False
+    assert sent == []
+
+
+def test_the_host_echoes_the_port_sequence_number(monkeypatch):
+    monkeypatch.setattr(native_host, "deliver", lambda message: {"ok": True, "saw": dict(message)})
+    stdin = io.BytesIO(encode_native({"type": "ping", "seq": 7}) + encode_native({"type": "ping"}))
+    stdout = io.BytesIO()
+    monkeypatch.setattr(native_host.sys, "stdin", type("S", (), {"buffer": stdin})())
+    monkeypatch.setattr(native_host.sys, "stdout", type("S", (), {"buffer": stdout})())
+    assert native_host.main([]) == 0
+    stdout.seek(0)
+    # the number goes back to the browser, never on to the application
+    assert read_native(stdout) == {"ok": True, "saw": {"type": "ping"}, "seq": 7}
+    assert read_native(stdout) == {"ok": True, "saw": {"type": "ping"}}
+
+
 def test_unknown_fields_and_tokens_are_not_relayed(monkeypatch):
     sent = []
     monkeypatch.setattr(endpoint, "send", lambda m, **kw: sent.append(m) or {"ok": True})
@@ -476,6 +510,8 @@ def test_a_reachable_app_takes_the_download_over():
     assert payload["cookie"] == "sid=abc", "cookies have to travel with the URL"
     assert payload["referer"] and payload["user_agent"]
     assert trace["cancelled"] == [7] and trace["erased"] == [7]
+    # held, not running, while the app was asked
+    assert trace["paused"] == [7] and trace["resumed"] == []
 
 
 def test_an_unreachable_app_leaves_the_browser_download_alone():
@@ -490,6 +526,50 @@ def test_an_unreachable_app_leaves_the_browser_download_alone():
     assert trace["cancelled"] == [], "the browser's own download was killed"
     assert trace["erased"] == []
     assert any("browser will fetch it" in message for message in trace["notified"])
+    # and it was paused while the app was asked, so it has to run again
+    assert trace["paused"] == [7] and trace["resumed"] == [7]
+
+
+@pytest.mark.parametrize("mode", ["port", "oldport"])
+def test_one_host_process_serves_every_message(mode):
+    """A host process per message cost ~250 ms a link; one port is reused -
+    and replies pair up with requests even from a host that does not echo
+    the sequence number."""
+    trace = run_extension(mode)
+    assert trace["ports"] == 1
+    assert [m["seq"] for m in trace["native"]] == [1, 2, 3]
+    accepted = [r["accepted"] for r in trace["replies"]["port"]]
+    assert accepted == [f"https://example.com/f{n}.zip" for n in (1, 2, 3)]
+    assert all("seq" not in r for r in trace["replies"]["port"])
+
+
+@pytest.fixture(scope="module")
+def sniffed() -> dict:
+    return run_extension("sniff")["media"]
+
+
+def test_stream_segments_never_crowd_out_the_playlist(sniffed):
+    names = [entry["name"] for entry in sniffed["9"]]
+    assert "master.m3u8" in names
+    assert not any(name.endswith(".ts") for name in names)
+    assert len(names) <= 25
+
+
+def test_media_is_found_by_content_type_and_sized(sniffed):
+    by_url = {entry["url"]: entry for entry in sniffed["9"]}
+    typed = by_url.get("https://cdn.example/stream?id=42")
+    assert typed and typed["size"] == 7000000 and typed["mime"] == "video/webm"
+    assert "https://cdn.example/preview.mp4" not in by_url, "a 2 KB 'video' is noise"
+
+
+def test_byte_ranges_of_one_file_are_one_entry(sniffed):
+    big = [e for e in sniffed["9"] if "/big.mp4" in e["url"]]
+    assert len(big) == 1
+
+
+def test_site_pages_are_not_sniffed(sniffed):
+    """On YouTube the page entry is what works; signed fragments are noise."""
+    assert sniffed["10"] == []
 
 
 def test_a_private_window_download_stays_in_the_browser_by_default():

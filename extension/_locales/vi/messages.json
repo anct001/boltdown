@@ -27,10 +27,10 @@
     "message": "Tải media này bằng Boltdown"
   },
   "menuPage": {
-    "message": "Tải mọi link trên trang này"
+    "message": "Tải các link trên trang này…"
   },
   "menuSelection": {
-    "message": "Tải các link vừa bôi đen"
+    "message": "Tải các link vừa bôi đen…"
   },
   "extensionOff": {
     "message": "Tiện ích đang tắt trong popup."
@@ -107,5 +107,114 @@
   },
   "popupGrant": {
     "message": "Cho phép"
+  },
+  "pickerTitle": {
+    "message": "Chọn file để tải"
+  },
+  "pickerSelectAll": {
+    "message": "Chọn hết"
+  },
+  "pickerSelectNone": {
+    "message": "Bỏ chọn"
+  },
+  "pickerNothing": {
+    "message": "Không có link nào khớp."
+  },
+  "pickerCancel": {
+    "message": "Huỷ"
+  },
+  "pickerDownload": {
+    "message": "Tải ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "12"
+      }
+    }
+  },
+  "pickerSummary": {
+    "message": "Đã chọn $SELECTED$/$TOTAL$",
+    "placeholders": {
+      "selected": {
+        "content": "$1",
+        "example": "12"
+      },
+      "total": {
+        "content": "$2",
+        "example": "40"
+      }
+    }
+  },
+  "pickerFilter": {
+    "message": "Lọc theo tên hoặc địa chỉ"
+  },
+  "pickerExpired": {
+    "message": "Danh sách đã hết hạn. Hãy mở lại từ trang web."
+  },
+  "kind_video": {
+    "message": "Video"
+  },
+  "kind_audio": {
+    "message": "Âm thanh"
+  },
+  "kind_archive": {
+    "message": "File nén"
+  },
+  "kind_document": {
+    "message": "Tài liệu"
+  },
+  "kind_image": {
+    "message": "Ảnh"
+  },
+  "kind_program": {
+    "message": "Chương trình"
+  },
+  "kind_other": {
+    "message": "Trang & khác"
+  },
+  "optionsTitle": {
+    "message": "Cài đặt Boltdown"
+  },
+  "optionsMinSize": {
+    "message": "Để trình duyệt tự tải file nhỏ hơn (MB, 0 = bắt tất cả)"
+  },
+  "optionsSkipExtensions": {
+    "message": "Không bao giờ bắt các loại file này"
+  },
+  "optionsSkipExtensionsHint": {
+    "message": "Đuôi file, cách nhau bằng dấu phẩy: html, php, json"
+  },
+  "optionsExcludedSites": {
+    "message": "Không bắt trên các trang này"
+  },
+  "optionsExcludedSitesHint": {
+    "message": "Mỗi dòng một trang; tên miền gồm cả tên miền con."
+  },
+  "optionsShortcuts": {
+    "message": "Phím tắt:"
+  },
+  "optionsSaved": {
+    "message": "Đã lưu"
+  },
+  "popupCaptureOn": {
+    "message": "Bắt link trên $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "example.com"
+      }
+    }
+  },
+  "popupAllLinks": {
+    "message": "Tải các link trên trang…"
+  },
+  "popupOptions": {
+    "message": "Cài đặt"
+  },
+  "cmdDownloadVideo": {
+    "message": "Tải video trên trang này"
+  },
+  "cmdDownloadLinks": {
+    "message": "Chọn link trên trang để tải"
   }
 }

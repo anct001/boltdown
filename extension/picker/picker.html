@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Boltdown</title>
+    <link rel="stylesheet" href="picker.css" />
+  </head>
+  <body>
+    <header>
+      <img src="../icons/icon32.png" alt="" width="24" height="24" />
+      <div>
+        <h1 data-i18n="pickerTitle"></h1>
+        <p id="source" class="muted"></p>
+      </div>
+    </header>
+
+    <div class="tools">
+      <input id="filter" type="search" autocomplete="off" />
+      <button id="all" class="ghost" data-i18n="pickerSelectAll"></button>
+      <button id="none" class="ghost" data-i18n="pickerSelectNone"></button>
+    </div>
+    <div id="kinds" class="kinds" role="group"></div>
+
+    <div class="list-wrap">
+      <table>
+        <tbody id="rows"></tbody>
+      </table>
+      <p id="empty" class="muted empty" data-i18n="pickerNothing" hidden></p>
+    </div>
+
+    <footer>
+      <span id="summary" class="muted"></span>
+      <span id="error" class="error" role="alert"></span>
+      <button id="cancel" class="ghost" data-i18n="pickerCancel"></button>
+      <button id="send"></button>
+    </footer>
+
+    <script src="picker.js"></script>
+  </body>
+</html>

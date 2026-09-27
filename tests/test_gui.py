@@ -407,6 +407,40 @@ def test_captured_link_becomes_a_download(qapp, stack):
         window.deleteLater()
 
 
+def test_a_batch_from_the_link_picker_needs_no_dialog_per_link(qapp, stack):
+    """The picker was the confirmation: fifty links, zero Add dialogs, each
+    with its own cookie."""
+    from app.ui.ipc_bridge import IpcBridge
+
+    controller, settings, _db = stack
+    settings.set("ask_before_download", True)
+    window = MainWindow(controller, settings)
+    window._notify = lambda title, body: None
+    window._prefilled_dialog = lambda options: pytest.fail("asked per link")
+    bridge = IpcBridge()
+    bridge.batchRequested.connect(window.handle_ipc_batch)
+    try:
+        items = [{"url": f"http://example.invalid/f{i}.zip", "cookie": f"c={i}"} for i in range(50)]
+        reply = bridge.handle({
+            "type": "batch", "items": items, "referer": "http://example.invalid/",
+            "user_agent": "TestAgent/1.0",
+        })
+        assert reply == {"ok": True, "accepted": 50}
+        qapp.processEvents()
+        added = controller.items()
+        assert len(added) == 50
+        assert {item.cookie for item in added} == {f"c={i}" for i in range(50)}
+        assert all(item.referer == "http://example.invalid/" for item in added)
+
+        bad = bridge.handle({"type": "batch", "items": [{"url": "file:///etc/passwd"}]})
+        assert bad["ok"] is False
+        assert bridge.handle({"type": "batch", "items": []})["ok"] is False
+    finally:
+        window._ticker.stop()
+        window.deleteLater()
+        bridge.deleteLater()
+
+
 def test_streaming_links_go_to_the_media_pipeline(qapp, stack):
     controller, settings, _db = stack
     settings.set("ask_before_download", False)

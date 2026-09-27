@@ -122,6 +122,7 @@ _VI: dict[str, str] = {
     "Browser integration": "Tích hợp trình duyệt",
     "Captured from the browser": "Bắt được từ trình duyệt",
     "Added to the list, waiting: %s": "Đã thêm vào danh sách, đang chờ: %s",
+    "Added %d downloads": "Đã thêm %d lượt tải",
     "Extension ID:": "ID tiện ích:",
     "32 letters from chrome://extensions": "32 chữ cái lấy ở chrome://extensions",
     "Load extension/ as an unpacked extension, then paste its ID here.":

@@ -44,6 +44,16 @@ def test_every_referenced_file_exists(manifest):
         assert (EXTENSION / relative).exists(), f"missing {relative}"
 
 
+def test_extension_pages_reference_files_that_exist(manifest):
+    import re
+
+    assert (EXTENSION / manifest["options_ui"]["page"]).is_file()
+    for page in PAGES:
+        html = (EXTENSION / page).read_text(encoding="utf-8")
+        for ref in re.findall(r'(?:src|href)="([^"]+)"', html):
+            assert (EXTENSION / page).parent.joinpath(ref).resolve().is_file(), f"{page}: {ref}"
+
+
 def test_popup_assets_exist():
     html = (EXTENSION / "popup" / "popup.html").read_text(encoding="utf-8")
     assert 'src="popup.js"' in html
@@ -68,7 +78,8 @@ def test_icons_are_real_pngs(manifest):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 @pytest.mark.parametrize(
-    "script", ["background.js", "content.js", "popup/popup.js"]
+    "script", ["background.js", "content.js", "popup/popup.js", "picker/picker.js",
+               "options/options.js"]
 )
 def test_javascript_parses(script):
     result = subprocess.run(
@@ -79,6 +90,9 @@ def test_javascript_parses(script):
 
 
 LOCALES = EXTENSION / "_locales"
+SCRIPTS = ("background.js", "content.js", "popup/popup.js", "picker/picker.js",
+           "options/options.js")
+PAGES = ("popup/popup.html", "picker/picker.html", "options/options.html")
 
 
 def _catalogue(lang: str) -> dict:
@@ -104,13 +118,20 @@ def test_every_message_the_code_asks_for_exists(manifest):
 
     english = _catalogue("en")
     wanted = set()
-    for script in ("background.js", "content.js", "popup/popup.js"):
+    for script in SCRIPTS:
         source = (EXTENSION / script).read_text(encoding="utf-8")
-        wanted |= set(re.findall(r'\bt\("([A-Za-z0-9_]+)"', source))
-    html = (EXTENSION / "popup" / "popup.html").read_text(encoding="utf-8")
-    wanted |= set(re.findall(r'data-i18n="([A-Za-z0-9_]+)"', html))
-    for value in (manifest["name"], manifest["description"]):
+        wanted |= set(re.findall(r'\bt2?\("([A-Za-z0-9_]+)"', source))
+    for page in PAGES:
+        html = (EXTENSION / page).read_text(encoding="utf-8")
+        wanted |= set(re.findall(r'data-i18n="([A-Za-z0-9_]+)"', html))
+    texts = [manifest["name"], manifest["description"]]
+    texts += [c["description"] for c in manifest.get("commands", {}).values()]
+    for value in texts:
         wanted |= set(re.findall(r"__MSG_([A-Za-z0-9_]+)__", value))
+    # the picker builds these names: kind_video, kind_audio, ...
+    picker = (EXTENSION / "picker" / "picker.js").read_text(encoding="utf-8")
+    kinds = re.findall(r'\["([a-z]+)", /', picker) + ["other"]
+    wanted |= {f"kind_{kind}" for kind in kinds}
     assert wanted, "the extension is not localised any more?"
     assert wanted <= set(english), sorted(wanted - set(english))
 
@@ -118,7 +139,7 @@ def test_every_message_the_code_asks_for_exists(manifest):
 def test_no_page_script_writes_html_from_strings():
     """Everything the extension shows comes from pages it does not control;
     building DOM with textContent is what keeps a hostile file name inert."""
-    for script in ("background.js", "content.js", "popup/popup.js"):
+    for script in SCRIPTS:
         source = (EXTENSION / script).read_text(encoding="utf-8")
         assert "innerHTML" not in source and "insertAdjacentHTML" not in source, script
 

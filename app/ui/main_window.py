@@ -576,6 +576,29 @@ class MainWindow(QMainWindow):
             self.controller.add(**options)
             self._notify(tr("Downloading video") if media else tr("Add URL"), url)
 
+    def handle_ipc_batch(self, message: dict) -> None:
+        """Links the user already picked in the browser's link list.
+
+        That list was the confirmation, so no Add dialog per link - fifty
+        dialogs in a row is exactly what the picker exists to avoid. The
+        engine's concurrency limit decides how many run at once.
+        """
+        referer = message.get("referer") or None
+        user_agent = message.get("user_agent") or None
+        added = 0
+        for entry in message.get("items") or []:
+            url = (entry.get("url") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                continue
+            self.controller.add(
+                url, referer=referer, user_agent=user_agent,
+                cookie=entry.get("cookie") or None,
+            )
+            added += 1
+        if added:
+            self._notify(tr("Captured from the browser"),
+                         tr("Added %d downloads") % added)
+
     def remote_snapshot(self) -> list[dict]:
         """What `boltdown-cli --remote-list` prints."""
         return [
