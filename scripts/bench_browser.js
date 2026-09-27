@@ -32,8 +32,10 @@ function registerHost(id) {
     `--user-data-dir=${cfg.profile}`,
     "--no-first-run",
     "--no-default-browser-check",
-    // Chromium refuses to start its sandbox as root (containers, CI).
-    ...(process.getuid && process.getuid() === 0 ? ["--no-sandbox"] : []),
+    // A throwaway browser on local test pages. Its sandbox will not start as
+    // root (containers) nor where AppArmor forbids user namespaces (Ubuntu
+    // 24.04, which GitHub's runners are) - Playwright turns it off too.
+    "--no-sandbox",
     `--disable-extensions-except=${cfg.extension}`,
     `--load-extension=${cfg.extension}`,
     ...extra
