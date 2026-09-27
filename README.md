@@ -737,7 +737,18 @@ Tám điểm thiết kế đáng chú ý:
 .venv/Scripts/python -m pytest -q
 ```
 
-418 test, khoảng 50 giây. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
+Mỗi pull request và mỗi lần push lên `main` đều được GitHub Actions
+(`.github/workflows/ci.yml`) chạy tự động:
+
+- **Tests**: toàn bộ bộ test trên Windows (Python 3.11) và Ubuntu (Python 3.11,
+  3.12). Trên Ubuntu có cài thêm ffmpeg để các test ghép video không bị bỏ qua.
+- **Browser end to end**: bài đo `scripts/bench_browser.py` chạy trên Chromium
+  thật và giữ các ngưỡng hiệu năng; số đo được lưu thành artifact `browser-bench`.
+- **Extension packages**: build bản Chromium và Firefox, chạy `web-ext lint`
+  (công cụ addons.mozilla.org dùng để kiểm mỗi lần upload); hai gói được lưu
+  thành artifact `extension`.
+
+Khoảng 600 test, chạy hết khoảng một đến hai phút. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
 cầu (bỏ qua `Range`, chặn `HEAD`, ngắt kết nối giữa chừng, trả 503, đổi `ETag`,
 không gửi `Content-Length`) — xem `tests/server.py`. Phần giao diện chạy headless qua
 Qt platform `offscreen`, kể cả kiểm tra vẽ biểu đồ và thanh segment. Phần trình duyệt

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -230,20 +231,35 @@ def test_the_cli_still_needs_a_url():
 # ------------------------------------------------------- the rename to Boltdown
 
 
-def test_an_existing_profile_is_adopted_after_the_rename(tmp_path, monkeypatch):
-    """A user upgrading from IDMClone keeps their database and settings."""
+@pytest.fixture
+def user_data(tmp_path, monkeypatch):
+    """Point the per-user data root at tmp_path, on whichever OS runs this.
+
+    Windows keeps the folder under %LOCALAPPDATA% as `Boltdown`; everything
+    else under $XDG_DATA_HOME as `boltdown`. Returns (new, old) folders.
+    """
     from app.util import paths
 
-    old = tmp_path / paths.LEGACY_NAME
-    old.mkdir()
-    (old / "boltdown.db").write_bytes(b"pretend database")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     monkeypatch.delenv("BOLTDOWN_HOME", raising=False)
     monkeypatch.delenv(paths.LEGACY_ENV, raising=False)
     monkeypatch.setattr(paths, "is_portable", lambda: False)
+    if os.name == "nt":
+        return tmp_path / paths.APP_NAME, tmp_path / paths.LEGACY_NAME
+    return tmp_path / paths.APP_NAME.lower(), tmp_path / paths.LEGACY_NAME.lower()
+
+
+def test_an_existing_profile_is_adopted_after_the_rename(user_data):
+    """A user upgrading from IDMClone keeps their database and settings."""
+    from app.util import paths
+
+    new, old = user_data
+    old.mkdir()
+    (old / "boltdown.db").write_bytes(b"pretend database")
 
     resolved = paths.data_dir()
-    assert resolved == tmp_path / paths.APP_NAME
+    assert resolved == new
     assert (resolved / "boltdown.db").read_bytes() == b"pretend database"
     assert not old.exists(), "the old folder was moved, not copied"
 
@@ -319,17 +335,13 @@ def test_nothing_still_answers_to_the_old_name():
     assert not offenders, "old name still in:\n" + "\n".join(offenders[:15])
 
 
-def test_the_download_list_survives_the_rename(tmp_path, monkeypatch):
+def test_the_download_list_survives_the_rename(user_data):
     """The directory moved, but the database inside it is named too."""
     from app.storage.db import Database
     from app.util import paths
 
-    old = tmp_path / paths.LEGACY_NAME
+    new, old = user_data
     old.mkdir()
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    monkeypatch.delenv("BOLTDOWN_HOME", raising=False)
-    monkeypatch.delenv(paths.LEGACY_ENV, raising=False)
-    monkeypatch.setattr(paths, "is_portable", lambda: False)
 
     # A database written by the previous version, with one download in it.
     older = Database(old / "idmclone.db")
@@ -338,7 +350,7 @@ def test_the_download_list_survives_the_rename(tmp_path, monkeypatch):
     (old / "idmclone.log").write_text("earlier run", encoding="utf-8")
 
     new_db = paths.db_path()
-    assert new_db == tmp_path / paths.APP_NAME / "boltdown.db"
+    assert new_db == new / "boltdown.db"
     assert new_db.exists() and not (new_db.parent / "idmclone.db").exists()
     assert paths.log_path().read_text(encoding="utf-8") == "earlier run"
 
@@ -348,15 +360,11 @@ def test_the_download_list_survives_the_rename(tmp_path, monkeypatch):
     assert [r["filename"] for r in rows] == ["keep.bin"]
 
 
-def test_the_write_ahead_log_travels_with_the_database(tmp_path, monkeypatch):
+def test_the_write_ahead_log_travels_with_the_database(user_data):
     """Leaving the -wal behind would discard the last few writes."""
     from app.util import paths
 
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    monkeypatch.delenv("BOLTDOWN_HOME", raising=False)
-    monkeypatch.delenv(paths.LEGACY_ENV, raising=False)
-    monkeypatch.setattr(paths, "is_portable", lambda: False)
-    old = tmp_path / paths.LEGACY_NAME
+    _new, old = user_data
     old.mkdir()
     for suffix in ("", "-wal", "-shm"):
         (old / f"idmclone.db{suffix}").write_bytes(suffix.encode() or b"main")
