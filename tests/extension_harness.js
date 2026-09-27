@@ -13,7 +13,10 @@ const path = require("path");
 const vm = require("vm");
 
 const mode = process.argv[2] || "ok";
-const trace = { native: [], cancelled: [], erased: [], notified: [], cookieQueries: [], replies: {} };
+const trace = {
+  native: [], cancelled: [], erased: [], paused: [], resumed: [], notified: [],
+  cookieQueries: [], replies: {}, ports: 0, media: null
+};
 
 // chrome.i18n backed by the real English catalogue, placeholders and all, so
 // a key missing from it shows up as the bare key in the trace.
@@ -53,6 +56,23 @@ const chrome = {
     onInstalled: listenerSlot(),
     onStartup: listenerSlot(),
     onMessage: listenerSlot(),
+    // "port" and "oldport" give the script a long-lived connection; the old
+    // host answers without echoing `seq`, the way hosts before it did.
+    connectNative: (mode === "port" || mode === "oldport") ? (host) => {
+      trace.ports += 1;
+      const onMessage = listenerSlot();
+      const onDisconnect = listenerSlot();
+      return {
+        onMessage,
+        onDisconnect,
+        postMessage(payload) {
+          trace.native.push(payload);
+          const reply = { ok: true, accepted: payload.url };
+          if (mode === "port") reply.seq = payload.seq;
+          setTimeout(() => onMessage.fn(reply), 5);
+        }
+      };
+    } : undefined,
     sendNativeMessage(host, payload, callback) {
       trace.native.push(payload);
       if (mode === "fail") {
@@ -68,6 +88,8 @@ const chrome = {
     onCreated: listenerSlot(),
     onDeterminingFilename: undefined,   // as on Firefox
     async cancel(id) { trace.cancelled.push(id); },
+    async pause(id) { trace.paused.push(id); },
+    async resume(id) { trace.resumed.push(id); },
     async erase(query) { trace.erased.push(query.id); }
   },
   storage: {
@@ -104,7 +126,7 @@ const chrome = {
     },
     async sendMessage() {}
   },
-  webRequest: { onBeforeRequest: { addListener() {} } },
+  webRequest: { onBeforeRequest: listenerSlot(), onHeadersReceived: listenerSlot() },
   scripting: { async executeScript() { return []; } }
 };
 
@@ -146,7 +168,42 @@ function ask(label, message, sender) {
 const POPUP = { id: "boltdown-test", url: "chrome-extension://test/popup/popup.html" };
 const PAGE = (tabId) => ({ id: "boltdown-test", url: TABS[tabId].url, tab: TABS[tabId] });
 
-if (mode === "router") {
+if (mode === "sniff") {
+  const H = (type, length) => [
+    { name: "Content-Type", value: type },
+    ...(length ? [{ name: "Content-Length", value: String(length) }] : [])
+  ];
+  const seen = (url, type, length) => chrome.webRequest.onHeadersReceived.fn({
+    tabId: 9, url, statusCode: 200, responseHeaders: H(type, length),
+    initiator: "https://news.example"
+  });
+  seen("https://cdn.example/live/master.m3u8", "application/vnd.apple.mpegurl");
+  for (let i = 0; i < 40; i++) seen(`https://cdn.example/live/seg${i}.ts`, "video/mp2t", 900000);
+  for (let i = 0; i < 40; i++) seen(`https://cdn.example/clip${i}.mp4`, "video/mp4", 5000000);
+  seen("https://cdn.example/stream?id=42", "video/webm", 7000000);
+  seen("https://cdn.example/preview.mp4", "video/mp4", 2000);
+  seen("https://cdn.example/big.mp4?range=0-1000", "video/mp4", 9000000);
+  seen("https://cdn.example/big.mp4?range=1001-2000", "video/mp4", 9000000);
+  chrome.webRequest.onHeadersReceived.fn({
+    tabId: 10, url: "https://rr1.googlevideo.com/videoplayback?itag=22", statusCode: 200,
+    responseHeaders: H("video/mp4", 9000000), initiator: "https://www.youtube.com"
+  });
+  setTimeout(() => {
+    trace.media = { 9: session["media:9"] || [], 10: session["media:10"] || [] };
+  }, 300);
+} else if (mode === "port" || mode === "oldport") {
+  const run = async () => {
+    const replies = await Promise.all([1, 2, 3].map((n) =>
+      new Promise((resolve) => chrome.runtime.onMessage.fn(
+        { type: "send-url", tabId: 3, url: `https://example.com/f${n}.zip` },
+        { id: "boltdown-test", url: "chrome-extension://test/popup/popup.html" },
+        resolve
+      ))
+    ));
+    trace.replies.port = replies;
+  };
+  setTimeout(run, 50);
+} else if (mode === "router") {
   // A content script may only send what its own tab loaded, or the page.
   ask("contentForeign", { type: "send-media", url: "https://bank.example/statement.pdf" }, PAGE(3));
   ask("contentKnown", { type: "send-media", url: "https://cdn.example.com/v.m3u8" }, PAGE(3));

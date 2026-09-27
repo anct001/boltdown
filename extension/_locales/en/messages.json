@@ -27,10 +27,10 @@
     "message": "Download this media with Boltdown"
   },
   "menuPage": {
-    "message": "Download every link on this page"
+    "message": "Download links on this page…"
   },
   "menuSelection": {
-    "message": "Download the selected links"
+    "message": "Download the selected links…"
   },
   "extensionOff": {
     "message": "The extension is switched off in its popup."
@@ -107,5 +107,114 @@
   },
   "popupGrant": {
     "message": "Allow access"
+  },
+  "pickerTitle": {
+    "message": "Choose what to download"
+  },
+  "pickerSelectAll": {
+    "message": "Select all"
+  },
+  "pickerSelectNone": {
+    "message": "Select none"
+  },
+  "pickerNothing": {
+    "message": "No link matches."
+  },
+  "pickerCancel": {
+    "message": "Cancel"
+  },
+  "pickerDownload": {
+    "message": "Download ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "12"
+      }
+    }
+  },
+  "pickerSummary": {
+    "message": "$SELECTED$ of $TOTAL$ selected",
+    "placeholders": {
+      "selected": {
+        "content": "$1",
+        "example": "12"
+      },
+      "total": {
+        "content": "$2",
+        "example": "40"
+      }
+    }
+  },
+  "pickerFilter": {
+    "message": "Filter by name or address"
+  },
+  "pickerExpired": {
+    "message": "This list has expired. Open it again from the page."
+  },
+  "kind_video": {
+    "message": "Video"
+  },
+  "kind_audio": {
+    "message": "Audio"
+  },
+  "kind_archive": {
+    "message": "Archives"
+  },
+  "kind_document": {
+    "message": "Documents"
+  },
+  "kind_image": {
+    "message": "Images"
+  },
+  "kind_program": {
+    "message": "Programs"
+  },
+  "kind_other": {
+    "message": "Pages & other"
+  },
+  "optionsTitle": {
+    "message": "Boltdown settings"
+  },
+  "optionsMinSize": {
+    "message": "Leave files smaller than this to the browser (MB, 0 = capture all)"
+  },
+  "optionsSkipExtensions": {
+    "message": "Never capture these file types"
+  },
+  "optionsSkipExtensionsHint": {
+    "message": "Extensions, separated by commas: html, php, json"
+  },
+  "optionsExcludedSites": {
+    "message": "Never capture on these sites"
+  },
+  "optionsExcludedSitesHint": {
+    "message": "One per line; a domain covers its subdomains."
+  },
+  "optionsShortcuts": {
+    "message": "Keyboard shortcuts:"
+  },
+  "optionsSaved": {
+    "message": "Saved"
+  },
+  "popupCaptureOn": {
+    "message": "Capture on $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "example.com"
+      }
+    }
+  },
+  "popupAllLinks": {
+    "message": "Download links on this page…"
+  },
+  "popupOptions": {
+    "message": "Settings"
+  },
+  "cmdDownloadVideo": {
+    "message": "Download the video on this page"
+  },
+  "cmdDownloadLinks": {
+    "message": "Choose links on this page to download"
   }
 }

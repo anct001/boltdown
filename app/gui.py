@@ -107,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
 
     bridge = IpcBridge()
     bridge.downloadRequested.connect(window.handle_ipc_download)
+    bridge.batchRequested.connect(window.handle_ipc_batch)
     bridge.showRequested.connect(window.handle_ipc_show)
     # Read-only view and control, for `boltdown-cli --remote-*`. The bridge
     # runs both on the GUI thread and waits for the answer.

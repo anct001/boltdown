@@ -6,6 +6,25 @@ const sendPageEl = document.getElementById("sendPage");
 const permissionEl = document.getElementById("permission");
 const grantEl = document.getElementById("grant");
 const incognitoRowEl = document.getElementById("incognitoRow");
+const siteRowEl = document.getElementById("siteRow");
+const siteOnEl = document.getElementById("siteOn");
+const siteLabelEl = document.getElementById("siteLabel");
+
+function t2(key, subs) {
+  try {
+    return chrome.i18n.getMessage(key, subs) || key;
+  } catch (error) {
+    return key;
+  }
+}
+
+function siteOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch (error) {
+    return "";
+  }
+}
 
 /** Settings shown as checkboxes, by element id. */
 const TOGGLES = ["enabled", "captureMedia", "showButton", "captureIncognito"];
@@ -40,6 +59,20 @@ async function loadSettings() {
   const settings = await chrome.runtime.sendMessage({ type: "get-settings" });
   for (const id of TOGGLES) {
     document.getElementById(id).checked = Boolean(settings[id]);
+  }
+  // One click to leave a site alone - the thing people reach for when a
+  // site's own downloader fights with the capture.
+  const tab = await activeTab();
+  const site = tab && /^https?:/i.test(tab.url || "") ? siteOf(tab.url) : "";
+  if (site) {
+    siteLabelEl.textContent = t2("popupCaptureOn", [site]);
+    siteOnEl.checked = !(settings.excludedSites || []).some(
+      (s) => site === s || site.endsWith(`.${s}`)
+    );
+    siteRowEl.hidden = false;
+    siteOnEl.addEventListener("change", () =>
+      chrome.runtime.sendMessage({ type: "exclude-site", url: tab.url, excluded: !siteOnEl.checked })
+    );
   }
 }
 
@@ -156,6 +189,18 @@ sendPageEl.addEventListener("click", async () => {
     : await chrome.runtime.sendMessage({ type: "send-url", tabId: tab.id, url: tab.url });
   sendPageEl.textContent = response && response.ok ? t("popupSent") : t("popupError");
   sendPageEl.disabled = false;
+});
+
+document.getElementById("pickLinks").addEventListener("click", async () => {
+  const tab = await activeTab();
+  if (!tab || !/^https?:/i.test(tab.url || "")) return;
+  const reply = await chrome.runtime.sendMessage({ type: "open-picker", tabId: tab.id });
+  if (reply && reply.ok) window.close();
+});
+
+document.getElementById("options").addEventListener("click", () => {
+  chrome.runtime.openOptionsPage().catch(() => {});
+  window.close();
 });
 
 localise();

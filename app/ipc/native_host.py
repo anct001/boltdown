@@ -19,6 +19,8 @@ from typing import Any
 from ..util.log import get_logger, setup_logging
 from . import endpoint
 from .protocol import (
+    MAX_BATCH,
+    TYPE_BATCH,
     TYPE_DOWNLOAD,
     TYPE_MEDIA,
     TYPE_PING,
@@ -37,13 +39,21 @@ LAUNCH_POLL = 0.25
 #: `pause`, `resume` and `show` for `boltdown-cli --remote-*`; none of those
 #: is the extension's business, and relaying them would let any script that
 #: gets hold of the extension's messaging read the download list or stop it.
-BROWSER_TYPES = frozenset({TYPE_PING, TYPE_DOWNLOAD, TYPE_MEDIA})
+BROWSER_TYPES = frozenset({TYPE_PING, TYPE_DOWNLOAD, TYPE_MEDIA, TYPE_BATCH})
 #: fields the application reads from a browser message; anything else - a
 #: `token` above all - is dropped rather than forwarded
 BROWSER_FIELDS = frozenset(
     {"type", "url", "filename", "referer", "cookie", "user_agent", "size",
-     "mime", "streaming", "page"}
+     "mime", "streaming", "page", "items"}
 )
+#: the envelope field a long-lived port uses to pair a reply with its request
+SEQ = "seq"
+
+
+def _is_http(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower().startswith(
+        ("http://", "https://")
+    )
 
 GUI_EXE_NAME = "Boltdown.exe" if sys.platform == "win32" else "Boltdown"
 
@@ -97,12 +107,27 @@ def screen(message: Any) -> tuple[dict[str, Any] | None, str | None]:
     if kind not in BROWSER_TYPES:
         return None, f"message type not allowed from the browser: {kind!r}"
     clean = {key: value for key, value in message.items() if key in BROWSER_FIELDS}
-    if kind != TYPE_PING:
-        url = clean.get("url")
-        if not isinstance(url, str) or not url.strip().lower().startswith(
-            ("http://", "https://")
-        ):
+    if kind == TYPE_BATCH:
+        items = clean.get("items")
+        if not isinstance(items, list) or not items:
+            return None, "a batch needs a list of items"
+        if len(items) > MAX_BATCH:
+            return None, f"a batch carries at most {MAX_BATCH} links"
+        kept = []
+        for item in items:
+            if not isinstance(item, dict) or not _is_http(item.get("url")):
+                return None, "only http(s) URLs are accepted"
+            cookie = item.get("cookie")
+            kept.append({"url": item["url"].strip(),
+                         **({"cookie": cookie} if isinstance(cookie, str) else {})})
+        clean["items"] = kept
+        clean.pop("url", None)
+    elif kind != TYPE_PING:
+        if not _is_http(clean.get("url")):
             return None, "only http(s) URLs are accepted"
+        clean.pop("items", None)
+    else:
+        clean.pop("items", None)
     return clean, None
 
 
@@ -152,11 +177,16 @@ def main(argv: list[str] | None = None) -> int:
         if message is None:
             log.info("browser closed the pipe")
             return 0
+        # A long-lived port (connectNative) numbers its requests; echo the
+        # number so the extension can pair replies even after a timeout.
+        seq = message.pop(SEQ, None) if isinstance(message, dict) else None
         try:
             response = deliver(message)
         except Exception as exc:  # noqa: BLE001 - always answer the browser
             log.exception("failed to deliver message")
             response = {"ok": False, "error": str(exc)}
+        if seq is not None:
+            response = {**response, SEQ: seq}
         try:
             write_native(stdout, response)
         except (OSError, ProtocolError) as exc:

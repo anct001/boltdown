@@ -25,15 +25,26 @@ const DEFAULTS = {
   // downloads to an application with a history list would ignore that.
   captureIncognito: false,
   minSize: 0, // bytes; 0 = capture everything
+  // Sites whose downloads the browser keeps: a host, or a parent domain.
+  excludedSites: [],
   skipExtensions: [
     "html", "htm", "php", "asp", "aspx", "jsp", "css", "js", "mjs", "json",
     "xml", "svg", "ico", "woff", "woff2", "ttf", "map"
   ]
 };
 
+// `.ts` is deliberately missing: on the web it is almost always one segment
+// of an HLS stream, and a page playing one fetches hundreds of them.
 const MEDIA_PATTERN =
-  /\.(m3u8|mpd|mp4|m4v|webm|mkv|mov|avi|flv|ts|mp3|m4a|aac|flac|ogg|opus|wav)(\?|#|$)/i;
+  /\.(m3u8|mpd|mp4|m4v|webm|mkv|mov|avi|flv|mp3|m4a|aac|flac|ogg|opus|wav)(\?|#|$)/i;
 const STREAM_PATTERN = /\.(m3u8|mpd)(\?|#|$)/i;
+const MEDIA_TYPE = /^(video|audio)\/|^application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml)/i;
+const STREAM_TYPE = /mpegurl|dash\+xml/i;
+/** Pieces of a stream, never something a person wants on its own. */
+const SEGMENT_PATTERN = /\.(ts|m4s|m4f|cmfv|cmfa|aac\.part)(\?|#|$)|[/_-](seg|segment|chunk|frag|fragment)[-_]?\d+/i;
+const SEGMENT_TYPE = /^video\/(mp2t|iso\.segment)|^audio\/mp2t/i;
+/** Smaller than this, a "video" is a preview, an ad beacon or a probe. */
+const MIN_MEDIA_BYTES = 48 * 1024;
 const MAX_MEDIA_PER_TAB = 25;
 const HTTP_URL = /^https?:\/\//i;
 
@@ -149,7 +160,67 @@ if (chrome.storage.onChanged) {
 
 // ------------------------------------------------------------------ native host
 
-function sendNative(payload) {
+/**
+ * One host process for the whole session, reached through a port.
+ *
+ * `sendNativeMessage` starts a fresh host for every message: an interpreter
+ * and its imports each time, a quarter of a second before the app even hears
+ * about the link - while the browser keeps downloading the file it is about
+ * to give up. A port started once answers in a few milliseconds, and an open
+ * native port also keeps the service worker from being evicted.
+ *
+ * Replies carry back the `seq` of their request. A host from before that
+ * convention answers without it, but it answers in order, so the oldest
+ * outstanding request is the one being answered.
+ */
+const NATIVE_TIMEOUT = 30000; // the host may be starting the application
+let nativePort = null;
+let nativeSeq = 0;
+const waiting = new Map(); // seq -> { resolve, timer, port }
+
+function settle(seq, reply) {
+  const entry = waiting.get(seq);
+  if (!entry) return;
+  waiting.delete(seq);
+  clearTimeout(entry.timer);
+  entry.resolve(reply);
+}
+
+function openPort() {
+  if (nativePort) return nativePort;
+  if (typeof chrome.runtime.connectNative !== "function") return null;
+  let port;
+  try {
+    port = chrome.runtime.connectNative(HOST);
+  } catch (error) {
+    return null;
+  }
+  nativePort = port;
+  port.onMessage.addListener((message) => {
+    let seq = message && message.seq;
+    if (!waiting.has(seq)) {
+      // An older host: the first request still waiting on this port.
+      seq = Array.from(waiting.keys()).find((key) => waiting.get(key).port === port);
+    }
+    if (seq === undefined) return;
+    const reply = Object.assign({}, message);
+    delete reply.seq;
+    settle(seq, reply);
+  });
+  port.onDisconnect.addListener(() => {
+    const reason =
+      (port.error && port.error.message) ||
+      (chrome.runtime.lastError && chrome.runtime.lastError.message) ||
+      "the native host went away";
+    if (nativePort === port) nativePort = null;
+    for (const [seq, entry] of Array.from(waiting)) {
+      if (entry.port === port) settle(seq, { ok: false, error: reason });
+    }
+  });
+  return port;
+}
+
+function sendOnce(payload) {
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendNativeMessage(HOST, payload, (response) => {
@@ -161,6 +232,25 @@ function sendNative(payload) {
       });
     } catch (error) {
       resolve({ ok: false, error: String(error) });
+    }
+  });
+}
+
+function sendNative(payload) {
+  const port = openPort();
+  if (!port) return sendOnce(payload);
+  return new Promise((resolve) => {
+    const seq = ++nativeSeq;
+    const timer = setTimeout(
+      () => settle(seq, { ok: false, error: "the native host did not answer" }),
+      NATIVE_TIMEOUT
+    );
+    waiting.set(seq, { resolve, timer, port });
+    try {
+      port.postMessage(Object.assign({}, payload, { seq }));
+    } catch (error) {
+      if (nativePort === port) nativePort = null;
+      settle(seq, { ok: false, error: String(error) });
     }
   });
 }
@@ -245,9 +335,28 @@ function baseName(path) {
   return parts[parts.length - 1] || undefined;
 }
 
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch (error) {
+    return "";
+  }
+}
+
+/** Is `url` - or the page it came from - on a site the user excluded? */
+function isExcluded(settings, ...urls) {
+  const sites = settings.excludedSites || [];
+  if (!sites.length) return false;
+  return urls.some((url) => {
+    const host = hostOf(url || "");
+    return host && sites.some((site) => host === site || host.endsWith(`.${site}`));
+  });
+}
+
 function shouldSkip(item, settings) {
   const url = item.finalUrl || item.url || "";
   if (!isHttp(url)) return true;
+  if (isExcluded(settings, url, item.referrer)) return true;
   if (item.state && item.state !== "in_progress") return true;
   if (item.byExtensionId && item.byExtensionId === chrome.runtime.id) return true;
   if (item.incognito && !settings.captureIncognito) return true;
@@ -258,7 +367,14 @@ function shouldSkip(item, settings) {
   return ext !== "" && settings.skipExtensions.includes(ext);
 }
 
-async function takeOver(item, suggestedName) {
+/** scripts/bench_browser.py sets `__boltdownTiming` to see where time goes. */
+function timing(stage, url) {
+  const log = globalThis.__boltdownTiming;
+  if (Array.isArray(log) && log.length < 1000) log.push({ stage, url, at: Date.now() });
+}
+
+async function takeOver(item, suggestedName, via) {
+  timing(via || "takeover", item.finalUrl || item.url);
   if (handled.has(item.id)) return;
   markHandled(item.id);
 
@@ -266,6 +382,17 @@ async function takeOver(item, suggestedName) {
   if (!settings.enabled || shouldSkip(item, settings)) {
     handled.delete(item.id);
     return;
+  }
+
+  // Hold the browser's transfer while the app is asked. Letting it run means
+  // megabytes downloaded only to be thrown away; cancelling it first means
+  // losing the download if the app does not answer. Paused is neither.
+  let paused = false;
+  try {
+    await chrome.downloads.pause(item.id);
+    paused = true;
+  } catch (error) {
+    // not pausable yet (or already finished) - carry on as before
   }
 
   const url = item.finalUrl || item.url;
@@ -288,9 +415,12 @@ async function takeOver(item, suggestedName) {
   // reinstalled, since the uninstaller removes the native-messaging
   // registration. The browser writing a few hundred kilobytes we then throw
   // away is a far smaller price than a download that simply does not happen.
+  timing(paused ? "paused-sent" : "sent", url);
   const response = await sendNative(payload);
+  timing("answered", url);
   if (!response.ok) {
     handled.delete(item.id);
+    if (paused) chrome.downloads.resume(item.id).catch(() => {});
     notify("Boltdown", t("handoverFailed", [String(response.error)]));
     return;
   }
@@ -312,15 +442,21 @@ async function takeOver(item, suggestedName) {
 // earlier, before the browser has opened its own file.
 if (chrome.downloads.onDeterminingFilename) {
   chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-    takeOver(item, item.filename);
+    takeOver(item, item.filename, "named");
     // Chrome falls back to the default name; we cancel the transfer anyway.
     suggest();
   });
 }
 
 chrome.downloads.onCreated.addListener((item) => {
-  // Fallback for downloads that never reach the naming stage.
-  setTimeout(() => takeOver(item, item.filename), 150);
+  if (!chrome.downloads.onDeterminingFilename) {
+    // Firefox: this is the only event, so there is nothing to wait for.
+    takeOver(item, item.filename);
+    return;
+  }
+  // Chromium: a fallback for downloads that never reach the naming stage;
+  // the pause gives onDeterminingFilename, which knows the name, first go.
+  setTimeout(() => takeOver(item, item.filename, "created+150"), 150);
 });
 
 // ------------------------------------------------------------------ media sniff
@@ -358,13 +494,38 @@ function serialised(tabId, job) {
   return next;
 }
 
+/** Same file, different byte range: players ask for one mp4 in pieces. */
+function mediaIdentity(entry) {
+  if (entry.streaming) return entry.url;
+  try {
+    const u = new URL(entry.url);
+    return u.origin + u.pathname;
+  } catch (error) {
+    return entry.url;
+  }
+}
+
 function rememberMedia(tabId, entry, settings) {
   if (tabId < 0) return Promise.resolve();
   return serialised(tabId, async () => {
     const list = await mediaFor(tabId);
-    if (list.some((m) => m.url === entry.url)) return;
+    const identity = mediaIdentity(entry);
+    const known = list.find((m) => mediaIdentity(m) === identity);
+    if (known) {
+      if (!known.size && entry.size) {
+        known.size = entry.size;
+        await sessionStore.set({ [mediaKey(tabId)]: list });
+      }
+      return;
+    }
     list.push(entry);
-    while (list.length > MAX_MEDIA_PER_TAB) list.shift();
+    // Over the limit, the oldest plain file goes first. A playlist is the
+    // one entry that downloads the whole stream; it must never be pushed out
+    // by what the player fetched after it.
+    while (list.length > MAX_MEDIA_PER_TAB) {
+      const plain = list.findIndex((m) => !m.streaming);
+      list.splice(plain >= 0 ? plain : 0, 1);
+    }
     await sessionStore.set({ [mediaKey(tabId)]: list });
 
     chrome.action.setBadgeBackgroundColor({ color: "#1565c0" }).catch(() => {});
@@ -377,27 +538,62 @@ function rememberMedia(tabId, entry, settings) {
   });
 }
 
-chrome.webRequest.onBeforeRequest.addListener(
+function header(headers, name) {
+  const found = (headers || []).find((h) => h.name.toLowerCase() === name);
+  return found ? String(found.value || "") : "";
+}
+
+/** The whole file's size: a range reply says it after the slash. */
+function totalSize(headers) {
+  const range = /\/(\d+)\s*$/.exec(header(headers, "content-range"));
+  if (range) return Number(range[1]);
+  const length = Number(header(headers, "content-length"));
+  return Number.isFinite(length) && length > 0 ? length : 0;
+}
+
+/**
+ * What a response is, as far as the media list cares - or null.
+ *
+ * Decided on the reply, not the request: a Content-Type gives away a video
+ * served from `/stream?id=42`, and the size tells a film from a thumbnail
+ * preview. Stream segments are dropped however they are named.
+ */
+function classifyMedia(details) {
+  if (details.statusCode >= 400) return null;
+  const type = header(details.responseHeaders, "content-type").split(";")[0].trim();
+  const url = details.url;
+  if (SEGMENT_TYPE.test(type) || SEGMENT_PATTERN.test(url)) return null;
+  const streaming = STREAM_PATTERN.test(url) || STREAM_TYPE.test(type);
+  if (!streaming && !MEDIA_PATTERN.test(url) && !MEDIA_TYPE.test(type)) return null;
+  const size = totalSize(details.responseHeaders);
+  if (!streaming && size && size < MIN_MEDIA_BYTES) return null;
+  return {
+    url,
+    streaming,
+    name: nameFromUrl(url),
+    size: size || undefined,
+    mime: type || undefined
+  };
+}
+
+chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (details.tabId < 0) return;
-    if (!MEDIA_PATTERN.test(details.url)) return;
+    // On YouTube and friends the sniffed pieces are signed fragments; the
+    // page entry is what works there, so the rest is only noise.
+    if (isSitePage(details.documentUrl || details.initiator || "")) return;
+    const entry = classifyMedia(details);
+    if (!entry) return;
     getSettings()
       .then((settings) => {
         if (!settings.captureMedia) return undefined;
         if (details.incognito && !settings.captureIncognito) return undefined;
-        return rememberMedia(
-          details.tabId,
-          {
-            url: details.url,
-            streaming: STREAM_PATTERN.test(details.url),
-            name: nameFromUrl(details.url)
-          },
-          settings
-        );
+        return rememberMedia(details.tabId, entry, settings);
       })
       .catch(() => {});
   },
-  { urls: ["http://*/*", "https://*/*"], types: ["media", "xmlhttprequest", "object", "other"] }
+  { urls: ["http://*/*", "https://*/*"], types: ["media", "xmlhttprequest", "object", "other"] },
+  ["responseHeaders"]
 );
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -429,12 +625,15 @@ async function knownMedia(tabId, pageUrl, url) {
 
 const EXTENSION_ORIGIN = chrome.runtime.getURL("");
 
-/** The popup (or another page of this extension), not a web page. */
+/**
+ * The popup, the options page or the link picker - a page of this extension,
+ * not a web page. (The picker is a window of its own, so it has a tab; a
+ * content script's URL is the web page's, never this origin.)
+ */
 function fromExtensionPage(sender) {
   return (
     Boolean(sender) &&
     sender.id === chrome.runtime.id &&
-    !sender.tab &&
     typeof sender.url === "string" &&
     sender.url.startsWith(EXTENSION_ORIGIN)
   );
@@ -484,7 +683,7 @@ async function routeContent(message, sender) {
       // The page entry goes first: on YouTube it is the only one that works.
       return {
         items: page ? [page, ...items] : items,
-        showButton: Boolean(settings.showButton)
+        showButton: Boolean(settings.showButton) && !isExcluded(settings, tab.url)
       };
     }
 
@@ -525,6 +724,41 @@ async function routeExtension(message) {
       const entry = await knownMedia(tab.id, tab.url, message.url);
       if (!entry) return { ok: false, error: "not a media URL of this tab" };
       return sendMedia(entry, tab, tab.url);
+    }
+
+    case "exclude-site": {
+      const host = hostOf(message.url || "");
+      if (!host) return { ok: false, error: "no site" };
+      const settings = await getSettings();
+      const sites = settings.excludedSites.filter((site) => site !== host);
+      if (message.excluded) sites.push(host);
+      return setSettings({ excludedSites: sites });
+    }
+
+    case "open-picker": {
+      const tab = await tabById(message.tabId);
+      if (!tab) return { ok: false, error: "no such tab" };
+      return openPicker(tab, Boolean(message.selectionOnly));
+    }
+
+    case "picker-data": {
+      const data = await pickerData(message.key);
+      return data ? { ok: true, links: data.links, pageUrl: data.referer } : { ok: false };
+    }
+
+    case "picker-send": {
+      const data = await pickerData(message.key);
+      if (!data) return { ok: false, error: "the list has expired" };
+      // Only links that really were on the page: the picker cannot add any.
+      const offered = new Set(data.links.map((link) => link.url));
+      const urls = (Array.isArray(message.urls) ? message.urls : []).filter(
+        (url) => offered.has(url)
+      );
+      if (!urls.length) return { ok: false, error: "nothing selected" };
+      const tab = await tabById(data.tabId);
+      const response = await sendLinks(urls, data.referer, tab || { incognito: data.incognito });
+      if (response.ok) await sessionStore.remove(pickerKey(message.key)).catch(() => {});
+      return response;
     }
 
     case "send-url": {
@@ -588,16 +822,27 @@ function buildMenus() {
 chrome.runtime.onInstalled.addListener(buildMenus);
 chrome.runtime.onStartup.addListener(buildMenus);
 
-/** Collect every href on the page (or inside the selection). */
+/**
+ * Collect every link on the page (or inside the selection), with its text.
+ * Runs inside the page, so it must stand alone.
+ */
 function collectLinks(selectionOnly) {
-  const anchors = Array.from(document.querySelectorAll("a[href]"));
   const selection = selectionOnly ? window.getSelection() : null;
-  const wanted = anchors.filter((a) => {
-    if (!/^https?:/i.test(a.href)) return false;
-    if (!selectionOnly) return true;
-    return selection && selection.rangeCount > 0 && selection.containsNode(a, true);
-  });
-  return Array.from(new Set(wanted.map((a) => a.href)));
+  const inside = (el) =>
+    !selectionOnly ||
+    (selection && selection.rangeCount > 0 && selection.containsNode(el, true));
+  const found = new Map();
+  const add = (url, text) => {
+    if (!url || !/^https?:/i.test(url) || found.has(url)) return;
+    found.set(url, { url, text: (text || "").replace(/\s+/g, " ").trim().slice(0, 120) });
+  };
+  for (const a of document.querySelectorAll("a[href]")) {
+    if (inside(a)) add(a.href, a.textContent || a.title);
+  }
+  for (const el of document.querySelectorAll("video[src], audio[src], source[src]")) {
+    if (inside(el)) add(el.src, "");
+  }
+  return Array.from(found.values()).slice(0, 5000);
 }
 
 async function linksOnPage(tabId, selectionOnly) {
@@ -607,28 +852,97 @@ async function linksOnPage(tabId, selectionOnly) {
     args: [Boolean(selectionOnly)]
   });
   const found = (results && results[0] && results[0].result) || [];
-  return Array.isArray(found) ? found.filter(isHttp) : [];
+  return Array.isArray(found)
+    ? found.filter((link) => link && isHttp(link.url))
+    : [];
 }
 
-async function sendMany(urls, referer, tab) {
-  let sent = 0;
+/** One link, the way a clicked download goes: the app may ask first. */
+async function sendOne(url, referer, tab) {
+  if (!isHttp(url)) return { ok: false, error: "only http(s) URLs" };
+  const response = await sendNative({
+    type: "download",
+    url,
+    referer: isHttp(referer) ? referer : undefined,
+    cookie: await cookieHeader(url, whereTab(tab)),
+    user_agent: navigator.userAgent
+  });
+  if (!response.ok) notify("Boltdown", response.error || t("unknownError"));
+  return response;
+}
+
+const BATCH_SIZE = 500;
+
+/**
+ * Many links in as few messages as possible. They used to go one message
+ * each - fifty links, fifty round trips, three seconds - and each one could
+ * open its own confirmation in the app. The picker was the confirmation.
+ */
+async function sendLinks(urls, referer, tab) {
   const where = whereTab(tab);
+  const items = [];
   for (const url of urls) {
     if (!isHttp(url)) continue;
-    const response = await sendNative({
-      type: "download",
-      url,
-      referer: isHttp(referer) ? referer : undefined,
-      cookie: await cookieHeader(url, where),
-      user_agent: navigator.userAgent
-    });
-    if (response.ok) sent += 1;
-    else {
-      notify("Boltdown", response.error || t("unknownError"));
-      break;
-    }
+    const cookie = await cookieHeader(url, where);
+    items.push(cookie ? { url, cookie } : { url });
   }
-  return sent;
+  let sent = 0;
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    const response = await sendNative({
+      type: "batch",
+      referer: isHttp(referer) ? referer : undefined,
+      user_agent: navigator.userAgent,
+      items: items.slice(i, i + BATCH_SIZE)
+    });
+    if (!response.ok) {
+      notify("Boltdown", response.error || t("unknownError"));
+      return { ok: false, error: response.error, sent };
+    }
+    sent += Math.min(BATCH_SIZE, items.length - i);
+  }
+  notify("Boltdown", t("sentLinks", [String(sent), String(items.length)]));
+  return { ok: true, sent };
+}
+
+// ------------------------------------------------------------- link picker
+
+function pickerKey(key) {
+  return `picker:${String(key).replace(/[^A-Za-z0-9]/g, "")}`;
+}
+
+async function pickerData(key) {
+  if (!key) return null;
+  const store = await sessionStore.get(pickerKey(key));
+  return store[pickerKey(key)] || null;
+}
+
+/**
+ * IDM's "download all links": a list to pick from, never the whole page
+ * blindly - a page's links are mostly navigation.
+ */
+async function openPicker(tab, selectionOnly) {
+  let links;
+  try {
+    links = await linksOnPage(tab.id, selectionOnly);
+  } catch (error) {
+    notify("Boltdown", t("pageUnreadable", [String(error)]));
+    return { ok: false, error: String(error) };
+  }
+  if (!links.length) {
+    notify("Boltdown", t("noLinks"));
+    return { ok: false, error: "no links" };
+  }
+  const key = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  await sessionStore.set({
+    [pickerKey(key)]: { links, referer: tab.url, tabId: tab.id, incognito: Boolean(tab.incognito) }
+  });
+  const url = chrome.runtime.getURL(`picker/picker.html#${key}`);
+  try {
+    await chrome.windows.create({ url, type: "popup", width: 760, height: 620, incognito: Boolean(tab.incognito) });
+  } catch (error) {
+    await chrome.tabs.create({ url });
+  }
+  return { ok: true, key, count: links.length };
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -640,29 +954,41 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const referer = (tab && tab.url) || info.pageUrl;
 
   if (info.menuItemId === "boltdown-link" && info.linkUrl) {
-    await sendMany([info.linkUrl], referer, tab);
+    await sendOne(info.linkUrl, referer, tab);
     return;
   }
   if (info.menuItemId === "boltdown-media" && (info.srcUrl || info.linkUrl)) {
-    await sendMany([info.srcUrl || info.linkUrl], referer, tab);
+    await sendOne(info.srcUrl || info.linkUrl, referer, tab);
     return;
   }
   if (!tab || tab.id === undefined) return;
-
-  // Whole page or just the selection: read the links out of the DOM, hand
-  // them over one at a time so a failure stops at the first one.
-  const selectionOnly = info.menuItemId === "boltdown-selection";
-  let urls = [];
-  try {
-    urls = await linksOnPage(tab.id, selectionOnly);
-  } catch (error) {
-    notify("Boltdown", t("pageUnreadable", [String(error)]));
-    return;
-  }
-  if (!urls.length) {
-    notify("Boltdown", t("noLinks"));
-    return;
-  }
-  const sent = await sendMany(urls, referer, tab);
-  notify("Boltdown", t("sentLinks", [String(sent), String(urls.length)]));
+  await openPicker(tab, info.menuItemId === "boltdown-selection");
 });
+
+// ------------------------------------------------------------- shortcuts
+
+if (chrome.commands && chrome.commands.onCommand) {
+  chrome.commands.onCommand.addListener(async (command, commandTab) => {
+    const tab = commandTab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+    if (!tab || !isHttp(tab.url)) return;
+    if (command === "download-links") {
+      await openPicker(tab, false);
+      return;
+    }
+    if (command === "download-video") {
+      const page = pageEntry(tab.url);
+      if (page) {
+        await sendMedia(page, tab, tab.url);
+        return;
+      }
+      chrome.tabs.sendMessage(tab.id, { type: "open-panel" }).catch(() => {});
+    }
+  });
+}
+
+// Start the host now, so the first click of the session does not pay for it.
+getSettings()
+  .then((settings) => {
+    if (settings.enabled) openPort();
+  })
+  .catch(() => {});

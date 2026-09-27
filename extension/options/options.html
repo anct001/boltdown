@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Boltdown</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <h1 data-i18n="optionsTitle"></h1>
+
+    <label class="switch"><input type="checkbox" id="enabled" /><span data-i18n="popupCapture"></span></label>
+    <label class="switch"><input type="checkbox" id="captureMedia" /><span data-i18n="popupDetect"></span></label>
+    <label class="switch"><input type="checkbox" id="showButton" /><span data-i18n="popupShowButton"></span></label>
+    <label class="switch"><input type="checkbox" id="captureIncognito" /><span data-i18n="popupIncognito"></span></label>
+
+    <label class="field">
+      <span data-i18n="optionsMinSize"></span>
+      <input type="number" id="minSize" min="0" step="0.1" />
+    </label>
+
+    <label class="field">
+      <span data-i18n="optionsSkipExtensions"></span>
+      <textarea id="skipExtensions" rows="3" spellcheck="false"></textarea>
+      <small data-i18n="optionsSkipExtensionsHint"></small>
+    </label>
+
+    <label class="field">
+      <span data-i18n="optionsExcludedSites"></span>
+      <textarea id="excludedSites" rows="4" spellcheck="false"></textarea>
+      <small data-i18n="optionsExcludedSitesHint"></small>
+    </label>
+
+    <p class="shortcuts">
+      <span data-i18n="optionsShortcuts"></span>
+      <span id="shortcuts"></span>
+    </p>
+
+    <p id="saved" class="saved" role="status"></p>
+    <script src="options.js"></script>
+  </body>
+</html>

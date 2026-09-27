@@ -30,6 +30,10 @@ TYPE_SHOW = "show"
 TYPE_LIST = "list"
 TYPE_PAUSE = "pause"
 TYPE_RESUME = "resume"
+#: many links at once, from the extension's link picker
+TYPE_BATCH = "batch"
+#: most links one batch message may carry
+MAX_BATCH = 2000
 
 STREAMING_EXTENSIONS = (".m3u8", ".mpd")
 

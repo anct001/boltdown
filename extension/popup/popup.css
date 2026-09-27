@@ -102,9 +102,37 @@ footer {
   margin-top: 12px;
 }
 
+footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 footer button {
   width: 100%;
   padding: 8px;
+}
+
+button.ghost {
+  background: transparent;
+  color: inherit;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+}
+
+button.ghost:hover {
+  background: rgba(128, 128, 128, 0.15);
+}
+
+button.link {
+  background: transparent;
+  color: var(--muted);
+  padding: 2px;
+  text-decoration: underline;
+}
+
+button.link:hover {
+  background: transparent;
+  color: inherit;
 }
 
 .empty {

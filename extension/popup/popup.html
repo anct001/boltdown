@@ -29,6 +29,10 @@
       <input type="checkbox" id="showButton" />
       <span data-i18n="popupShowButton"></span>
     </label>
+    <label class="switch" id="siteRow" hidden>
+      <input type="checkbox" id="siteOn" />
+      <span id="siteLabel"></span>
+    </label>
     <label class="switch" id="incognitoRow" hidden>
       <input type="checkbox" id="captureIncognito" />
       <span data-i18n="popupIncognito"></span>
@@ -41,6 +45,8 @@
 
     <footer>
       <button id="sendPage" data-i18n="popupSendPage"></button>
+      <button id="pickLinks" class="ghost" data-i18n="popupAllLinks"></button>
+      <button id="options" class="link" data-i18n="popupOptions"></button>
     </footer>
 
     <script src="popup.js"></script>
