@@ -8,6 +8,9 @@ cookies and referer are first-class here rather than bolted on later.
 
 from __future__ import annotations
 
+import os
+import ssl
+import threading
 from dataclasses import dataclass, field
 from ipaddress import ip_address
 from urllib.parse import urlsplit
@@ -120,6 +123,28 @@ def _cookie_hook(origin_url: str, cookie: str):
     return scope_cookie
 
 
+_SSL_LOCK = threading.Lock()
+_SSL_CONTEXTS: dict[tuple[str | None, str | None], ssl.SSLContext] = {}
+
+
+def shared_ssl_context() -> ssl.SSLContext:
+    """One verifying TLS context for every client, built once.
+
+    Building one reads and parses the whole CA bundle - about 50 ms, paid by
+    every download before its first request, http:// ones included. The
+    context is safe to share between connections and threads. It is keyed on
+    the variables httpx itself honours, so pointing SSL_CERT_FILE elsewhere
+    still takes effect.
+    """
+    key = (os.environ.get("SSL_CERT_FILE"), os.environ.get("SSL_CERT_DIR"))
+    with _SSL_LOCK:
+        context = _SSL_CONTEXTS.get(key)
+        if context is None:
+            context = httpx.create_ssl_context(verify=True, trust_env=True)
+            _SSL_CONTEXTS[key] = context
+        return context
+
+
 def build_client(
     spec: RequestSpec,
     *,
@@ -156,6 +181,6 @@ def build_client(
         limits=limits,
         proxy=spec.proxy,
         auth=httpx.BasicAuth(*spec.auth) if spec.auth else None,
-        verify=spec.verify_tls,
+        verify=shared_ssl_context() if spec.verify_tls else False,
         trust_env=True,
     )

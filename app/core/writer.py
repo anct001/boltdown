@@ -18,18 +18,19 @@ _O_BINARY = getattr(os, "O_BINARY", 0)
 _HAS_PWRITE = hasattr(os, "pwrite")
 
 
-def write_at(fd: int, data: bytes, offset: int) -> None:
+def write_at(fd: int, data: bytes | bytearray, offset: int) -> None:
     """Write all of `data` at `offset`, handling short writes."""
+    view = memoryview(data)  # slicing a view after a short write copies nothing
     try:
         if _HAS_PWRITE:
             written = 0
-            while written < len(data):
-                written += os.pwrite(fd, data[written:], offset + written)
+            while written < len(view):
+                written += os.pwrite(fd, view[written:], offset + written)
         else:
             os.lseek(fd, offset, os.SEEK_SET)
             written = 0
-            while written < len(data):
-                written += os.write(fd, data[written:])
+            while written < len(view):
+                written += os.write(fd, view[written:])
     except OSError as exc:
         if exc.errno in (errno.ENOSPC, errno.EDQUOT):
             raise DiskFullError(f"no space left while writing: {exc}") from exc
