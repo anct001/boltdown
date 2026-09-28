@@ -14,7 +14,7 @@ import httpx
 
 from ..util import filenames
 from ..util.log import get_logger
-from .errors import DownloadError, TransientError, classify_status
+from .errors import TransientError, classify_status
 from .http_client import RequestSpec
 
 log = get_logger(__name__)
@@ -27,7 +27,7 @@ class ProbeResult:
 
     __slots__ = (
         "url", "final_url", "size", "resumable", "etag", "last_modified",
-        "content_type", "filename", "status",
+        "content_type", "filename", "status", "response",
     )
 
     def __init__(
@@ -51,6 +51,8 @@ class ProbeResult:
         self.content_type = content_type
         self.filename = filename
         self.status = status
+        #: the probe's own response, still streaming the file from byte 0
+        self.response: httpx.Response | None = None
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return (
@@ -79,26 +81,30 @@ def _pick_filename(url: str, headers: httpx.Headers) -> str:
     return filenames.sanitize(name)
 
 
-async def probe(client: httpx.AsyncClient, spec: RequestSpec) -> ProbeResult:
-    """Discover size / range support without downloading the body."""
-    head_headers: httpx.Headers | None = None
-    final_url = spec.url
+async def probe(
+    client: httpx.AsyncClient, spec: RequestSpec, *, keep_body: bool = False
+) -> ProbeResult:
+    """Discover size, range support and name with one request.
 
-    try:
-        resp = await client.head(spec.url)
-        if resp.status_code < 400:
-            head_headers = resp.headers
-            final_url = str(resp.url)
-    except httpx.HTTPError as exc:
-        log.debug("HEAD failed for %s: %s", spec.url, exc)
+    That request is `GET` with `Range: bytes=0-`: a 206 with a parsable
+    `Content-Range` proves the server honours ranges and says how big the
+    file is; a 200 means it does not, and its `Content-Length` is the size.
+    Either way the body that follows *is the file from its first byte*.
 
-    # Ranged GET - authoritative for both size and range support.
+    With `keep_body` the response is left open on `result.response`, so the
+    first segment reads straight from it - the way IDM starts: one round trip
+    to the first byte, not three (a HEAD, a `bytes=0-0` probe, then the real
+    request). The caller must close it when it is not used.
+
+    A HEAD is only sent when the ranged reply leaves the size unknown.
+    """
     try:
-        req = client.build_request("GET", spec.url, headers={"Range": "bytes=0-0"})
+        req = client.build_request("GET", spec.url, headers={"Range": "bytes=0-"})
         resp = await client.send(req, stream=True)
     except httpx.HTTPError as exc:
         raise TransientError(f"probe failed: {exc}") from exc
 
+    handed_over = False
     try:
         err = classify_status(resp.status_code)
         if err is not None:
@@ -110,42 +116,45 @@ async def probe(client: httpx.AsyncClient, spec: RequestSpec) -> ProbeResult:
 
         if resp.status_code == 206:
             parsed = parse_content_range(headers.get("content-range"))
-            if parsed is not None:
+            if parsed is not None and parsed[0] == 0:
                 _start, _end, total = parsed
                 resumable = True
                 size = total
             else:
                 log.warning("206 without a usable Content-Range on %s", final_url)
         else:
-            # Server ignored Range and started sending the whole body.
+            # Server ignored Range and is sending the whole body.
             length = headers.get("content-length")
             size = int(length) if length and length.isdigit() else None
 
-        if size is None and head_headers is not None:
-            length = head_headers.get("content-length")
-            if length and length.isdigit():
-                size = int(length)
+        if size is None and resp.status_code == 206:
+            # A partial reply we cannot place: ask for the size another way,
+            # and do not read this body as if it were the file.
+            try:
+                head = await client.head(spec.url)
+                length = head.headers.get("content-length") if head.status_code < 400 else None
+                if length and length.isdigit():
+                    size = int(length)
+            except httpx.HTTPError as exc:
+                log.debug("HEAD failed for %s: %s", spec.url, exc)
+            keep_body = False
 
-        source = head_headers if head_headers is not None else headers
-        etag = source.get("etag") or headers.get("etag")
-        last_modified = source.get("last-modified") or headers.get("last-modified")
-        content_type = source.get("content-type") or headers.get("content-type")
-
-        disp_source = headers if headers.get("content-disposition") else source
-        filename = _pick_filename(final_url, disp_source)
-
-        return ProbeResult(
+        filename = _pick_filename(final_url, headers)
+        result = ProbeResult(
             url=spec.url,
             final_url=final_url,
             size=size,
             resumable=bool(resumable and size),
-            etag=etag,
-            last_modified=last_modified,
-            content_type=content_type,
+            etag=headers.get("etag"),
+            last_modified=headers.get("last-modified"),
+            content_type=headers.get("content-type"),
             filename=filename,
             status=resp.status_code,
         )
-    except DownloadError:
-        raise
+        if keep_body:
+            result.response = resp
+            handed_over = True
+        return result
     finally:
-        await resp.aclose()
+        if not handed_over:
+            await resp.aclose()

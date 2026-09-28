@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import statistics
 import threading
 import time
 from dataclasses import dataclass, field
@@ -30,7 +31,16 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
 
 log = get_logger(__name__)
 
-MIN_SPLIT = 2 << 20  # never create a stolen slice smaller than 2 MiB
+#: never create a stolen slice smaller than this. Small enough that the tail
+#: of a download can still be shared out (IDM keeps splitting down to a few
+#: hundred kilobytes); the time check in `_steal_work` stops splits that
+#: would cost more in a new request than they save.
+MIN_SPLIT = 256 * 1024
+#: a split must be expected to finish the victim's remainder at least this
+#: much sooner, or the new request is not worth making
+MIN_GAIN = 0.25
+#: round trip assumed for a new request before one has been measured
+DEFAULT_RTT = 0.1
 #: Paths claimed by running tasks in this process - `.part` files here, work
 #: directories in the media runner - so two downloads that resolve to the same
 #: name cannot write into the same place.
@@ -176,6 +186,10 @@ class TaskRunner:
         self._on_event = on_event
         self._target: TargetFile | None = None
         self._probe: ProbeResult | None = None
+        #: the probe's response, still streaming from byte 0 - segment 0's
+        #: first connection, until it is used or closed
+        self._primed: httpx.Response | None = None
+        self._workers: list[SegmentWorker] = []
 
     # ---------------------------------------------------------------- control
 
@@ -234,13 +248,17 @@ class TaskRunner:
             ) as client:
                 result = await self._probe_with_retry(client, spec)
                 self._probe = result
-                self._apply_probe(result)
-                self._prepare_files(result)
-                if self._all_complete():
-                    log.info("task %d already complete on disk", self.id)
-                else:
-                    self._set_state(TaskState.DOWNLOADING)
-                    await self._download(client, result)
+                self._primed, result.response = result.response, None
+                try:
+                    self._apply_probe(result)
+                    self._prepare_files(result)
+                    if self._all_complete():
+                        log.info("task %d already complete on disk", self.id)
+                    else:
+                        self._set_state(TaskState.DOWNLOADING)
+                        await self._download(client, result)
+                finally:
+                    await self._discard_primed()
             if self._cancel_requested:
                 raise CancelledByUser("cancelled")
             self._finalize()
@@ -278,7 +296,7 @@ class TaskRunner:
             if self._stop.is_set():
                 raise CancelledByUser("stopped")
             try:
-                return await probe(client, spec)
+                return await probe(client, spec, keep_body=True)
             except (TransientError, httpx.HTTPError) as exc:
                 attempt += 1
                 if attempt > self.request.max_retries:
@@ -376,6 +394,19 @@ class TaskRunner:
         self._target.allocate(self.size)
         self._save_meta()
 
+    async def _discard_primed(self) -> None:
+        primed, self._primed = self._primed, None
+        if primed is not None:
+            with contextlib.suppress(Exception):
+                await primed.aclose()
+
+    def _take_primed(self, segment: Segment) -> httpx.Response | None:
+        """The probe's stream, if `segment` is the one it is already sending."""
+        if self._primed is None or segment.start != 0 or segment.done != 0:
+            return None
+        primed, self._primed = self._primed, None
+        return primed
+
     def _all_complete(self) -> bool:
         return bool(self.segments) and all(s.is_complete for s in self.segments)
 
@@ -387,10 +418,13 @@ class TaskRunner:
 
         workers = [
             asyncio.create_task(
-                self._worker_loop(client, result, seg), name=f"task{self.id}-seg{seg.index}"
+                self._worker_loop(client, result, seg, self._take_primed(seg)),
+                name=f"task{self.id}-seg{seg.index}",
             )
             for seg in pending
         ]
+        # Resuming past byte 0: nobody wants the probe's stream.
+        await self._discard_primed()
         monitor = asyncio.create_task(self._monitor(), name=f"task{self.id}-monitor")
         try:
             await asyncio.gather(*workers)
@@ -405,7 +439,13 @@ class TaskRunner:
             self._recount()
             self._save_meta()
 
-    async def _worker_loop(self, client, result: ProbeResult, segment: Segment) -> None:
+    async def _worker_loop(
+        self,
+        client,
+        result: ProbeResult,
+        segment: Segment,
+        primed: httpx.Response | None = None,
+    ) -> None:
         assert self._target is not None
         fd = self._target.open_fd()
         worker = SegmentWorker(
@@ -418,22 +458,38 @@ class TaskRunner:
             resumable=self.resumable,
             max_retries=self.request.max_retries,
         )
+        self._workers.append(worker)
         try:
             current: Segment | None = segment
             while current is not None:
-                await worker.run(current)
-                current = await self._steal_work()
+                await worker.run(current, primed)
+                primed = None
+                current = await self._steal_work(worker)
         finally:
+            if primed is not None:
+                with contextlib.suppress(Exception):
+                    await primed.aclose()
             with contextlib.suppress(Exception):
                 worker.flush_sync()
+            self._workers.remove(worker)
             self._target.close_fd(fd)
 
-    async def _steal_work(self) -> Segment | None:
-        """Dynamic segmentation: carve the tail off the slowest segment.
+    async def _steal_work(self, me: SegmentWorker | None = None) -> Segment | None:
+        """Dynamic segmentation: give an idle connection someone else's tail.
 
-        Without this a single slow connection holds the whole download hostage
-        while the other seven workers sit idle - the main reason naive
-        multi-segment downloaders are no faster than a single stream.
+        The victim is the segment expected to finish *last* - remaining bytes
+        over its connection's speed - not merely the biggest. The biggest is
+        usually on a healthy connection; the one that holds the download
+        hostage is a small remainder on a crawling link, and IDM's strength
+        is that it goes after exactly that one.
+
+        The remainder is shared so both ends finish together: the idle
+        connection pays a round trip before its first byte, then runs at its
+        own speed, while the victim keeps going at its. A crawling victim
+        ends up keeping only what it already has in hand.
+
+        With no speeds measured yet (the first moments, or in tests) it falls
+        back to halving the biggest remainder.
         """
         async with self._split_lock:
             if self._stop.is_set():
@@ -443,19 +499,55 @@ class TaskRunner:
             ]
             if not candidates:
                 return None
-            victim = max(candidates, key=lambda s: s.remaining or 0)
+            owners = {
+                id(w.active): w for w in self._workers if w is not me and w.active is not None
+            }
+            rates = [w.rate for w in self._workers if w.rate > 0]
+            typical = statistics.median(rates) if rates else 0.0
+
+            def speed_of(segment: Segment) -> float:
+                owner = owners.get(id(segment))
+                return owner.rate if owner is not None and owner.rate > 0 else typical
+
+            def finish_in(segment: Segment) -> float:
+                speed = speed_of(segment)
+                # Without any speed, bytes are the only measure there is.
+                return (segment.remaining or 0) / speed if speed > 0 else float(segment.remaining or 0)
+
+            victim = max(candidates, key=finish_in)
             remaining = victim.remaining or 0
-            if remaining < 2 * MIN_SPLIT:
+            owner = owners.get(id(victim))
+            theirs = speed_of(victim)
+            mine = me.rate if me is not None and me.rate > 0 else typical
+
+            if theirs > 0 and mine > 0:
+                rtt = me.ttfb if me is not None and me.ttfb is not None else DEFAULT_RTT
+                # Both finish together: keep/theirs == rtt + (remaining-keep)/mine
+                keep = int(theirs * (rtt * mine + remaining) / (mine + theirs))
+                keep = min(remaining, max(0, keep))
+                alone = remaining / theirs
+                shared = max(keep / theirs, rtt + (remaining - keep) / mine)
+                if alone - shared < MIN_GAIN:
+                    return None
+            else:
+                keep = remaining // 2
+            # Never below what the victim already holds past `current`: those
+            # bytes are on their way to disk and will be counted there.
+            keep = max(keep, owner.unwritten if owner is not None else 0)
+            if remaining - keep < MIN_SPLIT:
                 return None
-            mid = victim.current + remaining // 2
-            if mid - victim.current < MIN_SPLIT or (victim.end or 0) - mid + 1 < MIN_SPLIT:
-                return None
+            if theirs <= 0 or mine <= 0:
+                # The blind halving keeps a sensible minimum on both sides.
+                if keep < MIN_SPLIT:
+                    return None
+
+            mid = victim.current + keep
             stolen = Segment(index=len(self.segments), start=mid, end=victim.end)
             victim.end = mid - 1
             self.segments.append(stolen)
             log.debug(
-                "task %d split segment %d -> new segment %d [%d..%s]",
-                self.id, victim.index, stolen.index, stolen.start, stolen.end,
+                "task %d split segment %d (%.0f KB/s) -> new segment %d [%d..%s]",
+                self.id, victim.index, theirs / 1024, stolen.index, stolen.start, stolen.end,
             )
             return stolen
 
@@ -477,6 +569,8 @@ class TaskRunner:
                 # EWMA keeps the readout from flickering between chunks.
                 self._speed = instant if self._speed == 0 else 0.7 * self._speed + 0.3 * instant
                 self._last_sample = (now, self._downloaded)
+            for worker in list(self._workers):
+                worker.sample(now)
             self._emit("progress")
             if now - last_meta >= META_INTERVAL:
                 self._save_meta()

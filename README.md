@@ -701,11 +701,21 @@ scripts/              build.py, sign.py, verify_p1.py, verify_p5.py, verify_p6.p
                       make_app_icon.py, make_extension_icons.py, make_screenshots.py
 ```
 
-Tám điểm thiết kế đáng chú ý:
+Những điểm thiết kế đáng chú ý:
 
-- **Dynamic segmentation** — segment nào xong trước sẽ cắt đôi phần *chưa tải* của
-  segment chậm nhất và tải tiếp phần đó (`TaskRunner._steal_work`). Không có cơ chế
-  này thì một kết nối chậm sẽ kéo lùi cả file.
+- **Dynamic segmentation theo tốc độ** — kết nối nào rảnh sẽ lấy phần việc của
+  segment *dự kiến xong muộn nhất* (số byte còn lại chia cho tốc độ kết nối của
+  nó), không phải segment còn nhiều byte nhất (`TaskRunner._steal_work`). Phần
+  còn lại được chia sao cho hai bên xong cùng lúc, có tính cả một vòng khứ hồi
+  cho yêu cầu mới; kết nối đang nghẽn chỉ giữ lại phần nó đã nhận. Không có cơ
+  chế này thì một kết nối chậm sẽ kéo lùi cả file.
+- **Một vòng khứ hồi tới byte đầu tiên** — probe là `GET` với `Range: bytes=0-`;
+  câu trả lời cho biết kích thước và khả năng resume, còn phần thân của nó chính
+  là segment 0, nên kết nối đầu tiên tải luôn thay vì HEAD, probe một byte rồi mới
+  gửi yêu cầu thật. File nhỏ chỉ tốn đúng một request.
+- **Rớt kết nối giữa chừng thì nối lại ngay** — nếu vừa nhận được dữ liệu, worker
+  gửi lại yêu cầu sau 50 ms; chỉ khi server từ chối liên tục mới lùi dần thời gian
+  chờ.
 - **Ghi trước, ghi sổ sau** — `segment.done` (và file `.boltdown`) chỉ tăng *sau khi*
   dữ liệu đã nằm trên đĩa, nên metadata không bao giờ khai nhiều hơn thực tế. Mất
   điện chỉ khiến tải lại vài trăm KB, không bao giờ hỏng file.
@@ -747,6 +757,32 @@ Mỗi pull request và mỗi lần push lên `main` đều được GitHub Actio
 - **Extension packages**: build bản Chromium và Firefox, chạy `web-ext lint`
   (công cụ addons.mozilla.org dùng để kiểm mỗi lần upload); hai gói được lưu
   thành artifact `extension`.
+
+### Đo hiệu năng lõi tải
+
+```bash
+python scripts/bench_engine.py
+```
+
+Một web server cục bộ (chạy ở tiến trình riêng, nên CPU đo được chỉ là của phía
+tải) đóng vai những kiểu server khiến IDM đáng dùng; mỗi tình huống được so với
+thời gian lý tưởng cho server đó (`efficiency` = lý tưởng / thực tế). Đo trên
+Linux, 8 kết nối:
+
+| tình huống | trước | sau |
+|---|---|---|
+| mỗi kết nối bị giới hạn 2 MB/s, 64 MB | 0.97 | 0.98 |
+| server cách 200 ms (lý tưởng tính cả 2 vòng khứ hồi bắt buộc) | 0.58 | 0.98 |
+| một kết nối chỉ được 128 KB/s, các kết nối khác 2 MB/s | 0.13 (33.6 s) | 0.93 (4.9 s) |
+| kết nối bị cắt sau vài MB | 0.47 | 0.96 |
+| không giới hạn, 512 MB | 208 MB/s, 12.7 s CPU/GB | 235 MB/s, 11.0 s CPU/GB |
+| 100 file 256 KB, 4 file cùng lúc, cách 50 ms | 9.6 file/s, 3 request/file | 54 file/s, 1 request/file |
+
+Nguồn chênh lệch: kết nối nghẽn bị chia việc theo tốc độ thay vì cắt đôi; probe
+trở thành segment đầu tiên; nối lại ngay sau khi rớt; và mỗi lượt tải không còn
+tự nạp lại kho chứng chỉ CA (~50 ms, kể cả với link http). `tests/test_engine_speed.py`
+chạy lại các tình huống này và giữ ngưỡng thấp hơn một chút so với số đo trên, để
+máy CI bận vẫn qua.
 
 Khoảng 600 test, chạy hết khoảng một đến hai phút. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
 cầu (bỏ qua `Range`, chặn `HEAD`, ngắt kết nối giữa chừng, trả 503, đổi `ETag`,
