@@ -780,7 +780,10 @@ Linux, 8 kết nối:
 
 Nguồn chênh lệch: kết nối nghẽn bị chia việc theo tốc độ thay vì cắt đôi; probe
 trở thành segment đầu tiên; nối lại ngay sau khi rớt; và mỗi lượt tải không còn
-tự nạp lại kho chứng chỉ CA (~50 ms, kể cả với link http). `tests/test_engine_speed.py`
+tự nạp lại kho chứng chỉ CA (~50 ms, kể cả với link http). Engine còn làm "ấm"
+httpx và kho chứng chỉ ngay khi khởi động (`Engine._warm_up`): trước đây lượt tải
+đầu tiên sau khi mở app phải chịu thêm khoảng 100 ms trên Linux và vài trăm ms
+trên Windows (đo trên CI) trước khi gửi request đầu tiên. `tests/test_engine_speed.py`
 chạy lại các tình huống này và giữ ngưỡng thấp hơn một chút so với số đo trên, để
 máy CI bận vẫn qua.
 

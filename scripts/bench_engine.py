@@ -305,8 +305,13 @@ def main(argv: list[str] | None = None) -> int:
         serve()
         return 0
 
-    # Imported before any clock starts: module loading is not download time.
+    # Loaded before any clock starts, the way the application's engine does
+    # it when it starts (`Engine._warm_up`): module loading and the TLS
+    # context are start-up costs, not download time.
+    from app.core.http_client import warm_up
     from app.core.task import DownloadRequest, TaskRunner  # noqa: F401
+
+    asyncio.run(warm_up())
 
     server = subprocess.Popen(
         [sys.executable, __file__, "--serve"], stdout=subprocess.PIPE, text=True

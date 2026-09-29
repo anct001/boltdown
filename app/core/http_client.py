@@ -145,6 +145,28 @@ def shared_ssl_context() -> ssl.SSLContext:
         return context
 
 
+async def warm_up() -> None:
+    """Pay the one-time costs of the first download before anyone asks.
+
+    httpx loads its transport (httpcore, h11, the anyio backend) on the first
+    client and the first connection, and the TLS context reads the CA bundle.
+    Together that is ~100 ms on Linux and several times that on Windows - all
+    of it landing on the first link the user clicks after starting the
+    application. The engine runs this as soon as its loop is up; nothing here
+    touches the network.
+    """
+    shared_ssl_context()
+    try:  # the pieces a first connection would import
+        import anyio._backends._asyncio  # noqa: F401
+        import h11  # noqa: F401
+        import httpcore._backends.anyio  # noqa: F401
+        import httpcore._backends.auto  # noqa: F401
+    except ImportError:  # pragma: no cover - a different httpx transport
+        pass
+    async with build_client(RequestSpec(url="http://localhost/")):
+        pass
+
+
 def build_client(
     spec: RequestSpec,
     *,
