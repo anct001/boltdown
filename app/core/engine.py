@@ -133,6 +133,9 @@ class Engine:
         self._loop = loop
         self._sem = ConcurrencyLimit(self._max_concurrent)
         self._ready.set()
+        # The first download of the session should start as fast as the
+        # hundredth; see `warm_up`. Scheduled, so `start` does not wait on it.
+        loop.create_task(self._warm_up(), name="engine-warm-up")
         try:
             loop.run_forever()
         finally:
@@ -145,6 +148,15 @@ class Engine:
                 )
             loop.run_until_complete(loop.shutdown_asyncgens())
             loop.close()
+
+    @staticmethod
+    async def _warm_up() -> None:
+        from .http_client import warm_up
+
+        try:
+            await warm_up()
+        except Exception as exc:  # noqa: BLE001 - an optimisation, never fatal
+            log.debug("warm-up skipped: %s", exc)
 
     def stop(self, timeout: float = 15.0) -> None:
         """Pause everything, flush resume metadata, then shut the loop down."""

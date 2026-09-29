@@ -239,3 +239,41 @@ def test_the_engine_keeps_close_to_ideal(bench_results, name, floor):
 
 def test_small_files_take_one_request_each(bench_results):
     assert bench_results["small_files"]["requests_per_file"] == 1.0, bench_results["small_files"]
+
+
+# ---------------------------------------------------------------- start-up
+
+
+async def test_warm_up_touches_no_network(monkeypatch):
+    import httpx
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("warm-up must not send anything")
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", refuse)
+    from app.core.http_client import warm_up
+
+    await warm_up()
+
+
+def test_the_engine_warms_up_when_it_starts(monkeypatch):
+    """The first link clicked after starting the application used to pay for
+    loading httpx's transport and the CA bundle - a few hundred ms on
+    Windows, measured on CI - before its first request went out."""
+    import threading
+
+    from app.core import http_client
+    from app.core.engine import Engine
+
+    warmed = threading.Event()
+
+    async def fake_warm_up():
+        warmed.set()
+
+    monkeypatch.setattr(http_client, "warm_up", fake_warm_up)
+    engine = Engine()
+    engine.start()
+    try:
+        assert warmed.wait(5), "the engine never warmed up"
+    finally:
+        engine.stop()
