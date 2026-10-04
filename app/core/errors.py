@@ -35,6 +35,14 @@ class ForbiddenError(FatalError):
     """
 
 
+class ServerBusyError(TransientError):
+    """429 / 503 - the server is turning this connection away for now.
+
+    Most often it is a per-client connection limit: a file host that serves
+    two connections at a time and refuses the rest.
+    """
+
+
 class RangeNotSatisfiableError(DownloadError):
     """416 - our saved offsets no longer match the resource."""
 
@@ -67,7 +75,9 @@ def classify_status(status: int) -> DownloadError | None:
         return NotFoundError(f"HTTP {status}: resource not found")
     if status == 416:
         return RangeNotSatisfiableError("HTTP 416: range not satisfiable")
-    if status in (408, 425, 429, 500, 502, 503, 504):
+    if status in (429, 503):
+        return ServerBusyError(f"HTTP {status}")
+    if status in (408, 425, 500, 502, 504):
         return TransientError(f"HTTP {status}")
     if 400 <= status < 500:
         return FatalError(f"HTTP {status}")

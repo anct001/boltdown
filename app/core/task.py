@@ -23,7 +23,13 @@ from .http_client import RequestSpec, build_client
 from .probe import ProbeResult, probe
 from .ratelimit import ChainedBucket, TokenBucket
 from .resume import ResumeMeta, cleanup, meta_path_for
-from .segment import Segment, SegmentWorker, backoff_delay, plan_segments
+from .segment import (
+    Segment,
+    SegmentDeclined,
+    SegmentWorker,
+    backoff_delay,
+    plan_segments,
+)
 from .writer import TargetFile
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
@@ -41,6 +47,12 @@ MIN_SPLIT = 256 * 1024
 MIN_GAIN = 0.25
 #: round trip assumed for a new request before one has been measured
 DEFAULT_RTT = 0.1
+#: a connection the server refused (its connection limit) asks again after
+#: this long, doubling each time it is refused again, up to the maximum
+DECLINED_WAIT = 0.5
+DECLINED_MAX_WAIT = 5.0
+#: how often a refused connection asks anyway, in case the limit has risen
+CAPACITY_PROBE = 10.0
 #: Paths claimed by running tasks in this process - `.part` files here, work
 #: directories in the media runner - so two downloads that resolve to the same
 #: name cannot write into the same place.
@@ -190,6 +202,12 @@ class TaskRunner:
         #: first connection, until it is used or closed
         self._primed: httpx.Response | None = None
         self._workers: list[SegmentWorker] = []
+        #: segment index -> the worker downloading it. A segment in no entry
+        #: was handed back (the server refused its connection) and waits for
+        #: a worker to adopt it.
+        self._owned: dict[int, SegmentWorker] = {}
+        #: most connections the server has served this task at once
+        self._peak_served = 0
 
     # ---------------------------------------------------------------- control
 
@@ -457,24 +475,103 @@ class TaskRunner:
             on_commit=self._on_commit,
             resumable=self.resumable,
             max_retries=self.request.max_retries,
+            should_decline=lambda: self._should_decline(worker),
+            on_served=self._note_served,
         )
+        worker.holds_elsewhere = lambda: self._holding(besides=worker) > 0
         self._workers.append(worker)
+        self._owned[segment.index] = worker
+        declined = 0
         try:
             current: Segment | None = segment
             while current is not None:
-                await worker.run(current, primed)
+                try:
+                    await worker.run(current, primed)
+                except SegmentDeclined as exc:
+                    # The server's connection limit is reached. One of the
+                    # connections it does serve adopts this segment; this
+                    # worker steps back and asks again later, so the task
+                    # uses every connection the server allows - and no more
+                    # than it allows at any moment.
+                    primed = None
+                    worker.release()
+                    self._owned.pop(current.index, None)
+                    # What the server serves now is its limit now, even if it
+                    # once allowed more.
+                    self._peak_served = min(
+                        self._peak_served, max(1, self._holding(besides=worker))
+                    )
+                    declined += 1
+                    wait = min(DECLINED_MAX_WAIT, DECLINED_WAIT * 2 ** (declined - 1))
+                    log.info(
+                        "task %d: connection for segment %d refused (%s); "
+                        "trying again in %.1fs", self.id, current.index, exc, wait,
+                    )
+                    # Back only for work nobody holds: splitting a served
+                    # connection's segment would just be refused again, and
+                    # each try would cut the file into smaller pieces.
+                    # And only when a slot looks free - fewer connections
+                    # held than the server has ever allowed - or, now and
+                    # then, to find out whether it allows more by now.
+                    current = None
+                    since_probe = 0.0
+                    while current is None:
+                        if not await self._wait_for_turn(wait):
+                            return
+                        since_probe += wait
+                        free = self._holding(besides=worker) < self._peak_served
+                        if free or since_probe >= CAPACITY_PROBE:
+                            since_probe = 0.0
+                            current = await self._steal_work(worker, orphans_only=True)
+                        wait = min(DECLINED_MAX_WAIT, wait * 2)
+                    continue
+                declined = 0
                 primed = None
+                self._owned.pop(current.index, None)
                 current = await self._steal_work(worker)
         finally:
             if primed is not None:
                 with contextlib.suppress(Exception):
                     await primed.aclose()
+            await worker.close_parked()
             with contextlib.suppress(Exception):
                 worker.flush_sync()
             self._workers.remove(worker)
             self._target.close_fd(fd)
 
-    async def _steal_work(self, me: SegmentWorker | None = None) -> Segment | None:
+    def _holding(self, besides: SegmentWorker | None = None) -> int:
+        return sum(1 for w in self._workers if w is not besides and w.holds_connection)
+
+    def _note_served(self) -> None:
+        self._peak_served = max(self._peak_served, self._holding())
+
+    def _should_decline(self, worker: SegmentWorker) -> bool:
+        """Is a 503/429 for `worker` the server's connection limit?
+
+        Only when the server is already serving this task as many
+        connections as it ever has. With fewer, a slot is free on its side or
+        about to be - one this task closed a moment ago and the server has
+        not finished tearing down - and a short retry gets it.
+        """
+        others = self._holding(besides=worker)
+        return others > 0 and others >= self._peak_served
+
+    async def _wait_for_turn(self, seconds: float) -> bool:
+        """Sit out `seconds`; False if the task stopped or has nothing left.
+
+        Polled rather than slept in one go: a worker waiting out a refusal
+        must not hold the finished download open for the rest of its wait.
+        """
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if self._stop.is_set() or self._all_complete():
+                return False
+            await asyncio.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+        return not (self._stop.is_set() or self._all_complete())
+
+    async def _steal_work(
+        self, me: SegmentWorker | None = None, *, orphans_only: bool = False
+    ) -> Segment | None:
         """Dynamic segmentation: give an idle connection someone else's tail.
 
         The victim is the segment expected to finish *last* - remaining bytes
@@ -502,6 +599,22 @@ class TaskRunner:
             owners = {
                 id(w.active): w for w in self._workers if w is not me and w.active is not None
             }
+            for index, worker in self._owned.items():
+                if worker is not me:
+                    owners.update({id(s): worker for s in self.segments if s.index == index})
+            if me is not None:
+                # A segment handed back by a refused connection is taken
+                # whole, before anything is split: it has nobody at all.
+                # The one starting where this worker's open stream stands
+                # comes first - it needs no new request.
+                orphans = [s for s in candidates if id(s) not in owners]
+                if orphans:
+                    here = me.parked.position if me.parked is not None else None
+                    adopted = min(orphans, key=lambda s: (s.current != here, s.current))
+                    self._owned[adopted.index] = me
+                    return adopted
+            if orphans_only:
+                return None
             rates = [w.rate for w in self._workers if w.rate > 0]
             typical = statistics.median(rates) if rates else 0.0
 
@@ -545,6 +658,8 @@ class TaskRunner:
             stolen = Segment(index=len(self.segments), start=mid, end=victim.end)
             victim.end = mid - 1
             self.segments.append(stolen)
+            if me is not None:
+                self._owned[stolen.index] = me
             log.debug(
                 "task %d split segment %d (%.0f KB/s) -> new segment %d [%d..%s]",
                 self.id, victim.index, theirs / 1024, stolen.index, stolen.start, stolen.end,

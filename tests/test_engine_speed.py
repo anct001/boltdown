@@ -36,6 +36,8 @@ class _FakeWorker:
         self.rate = rate
         self.unwritten = unwritten
         self.ttfb = ttfb
+        self.holds_connection = False
+        self.parked = None
 
 
 def _runner(tmp_path: Path) -> TaskRunner:
@@ -218,7 +220,8 @@ def bench_results(tmp_path_factory) -> dict:
     out = tmp_path_factory.mktemp("bench") / "engine.json"
     proc = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "bench_engine.py"),
-         "--only", "latency", "slow_link", "flaky", "small_files", "--json", str(out)],
+         "--only", "latency", "slow_link", "flaky", "small_files", "conn_limit",
+         "single_conn", "--json", str(out)],
         capture_output=True, text=True, timeout=600,
     )
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
@@ -232,9 +235,20 @@ def test_every_benchmark_file_arrives_intact(bench_results):
 # Held a little below what the engine measures (0.92-0.98) so a busy CI
 # machine does not fail them; the numbers before these changes were 0.58,
 # 0.13 and 0.47.
-@pytest.mark.parametrize("name, floor", [("latency", 0.8), ("slow_link", 0.7), ("flaky", 0.75)])
+# conn_limit measured 0.79-0.82 (0.49 before); single_conn 1.0 (it failed).
+@pytest.mark.parametrize("name, floor", [
+    ("latency", 0.8), ("slow_link", 0.7), ("flaky", 0.75),
+    ("conn_limit", 0.6), ("single_conn", 0.8),
+])
 def test_the_engine_keeps_close_to_ideal(bench_results, name, floor):
     assert bench_results[name]["efficiency"] >= floor, bench_results[name]
+
+
+def test_one_connection_carries_on_from_segment_to_segment(bench_results):
+    """With one connection allowed, the open stream runs on into the next
+    segment instead of a new request per segment, each risking a refusal."""
+    single = bench_results["single_conn"]
+    assert single["requests"] <= single["segments"] + 3, single
 
 
 def test_small_files_take_one_request_each(bench_results):
@@ -277,3 +291,112 @@ def test_the_engine_warms_up_when_it_starts(monkeypatch):
         assert warmed.wait(5), "the engine never warmed up"
     finally:
         engine.stop()
+
+
+# ------------------------------------------------- server connection limits
+
+
+class _Holder(_FakeWorker):
+    def __init__(self, segment, holds: bool) -> None:
+        super().__init__(segment, rate=1_000_000)
+        self.holds_connection = holds
+        self.parked = None
+
+
+def test_a_refusal_at_the_servers_peak_is_its_limit(tmp_path):
+    runner = _runner(tmp_path)
+    me = _Holder(None, holds=False)
+    other = _Holder(None, holds=True)
+    runner._workers = [me, other]
+    runner._note_served()          # one connection served at once, so far
+    assert runner._should_decline(me) is True
+
+
+def test_a_refusal_below_the_peak_is_a_slot_not_yet_freed(tmp_path):
+    """Two were served at once before; with one now, the 503 is the server
+    still tearing the other down - retry, do not give the segment away."""
+    runner = _runner(tmp_path)
+    a, b, me = _Holder(None, True), _Holder(None, True), _Holder(None, False)
+    runner._workers = [a, b, me]
+    runner._note_served()
+    b.holds_connection = False
+    assert runner._should_decline(me) is False
+
+
+def test_a_refusal_with_nothing_served_is_a_busy_server(tmp_path):
+    runner = _runner(tmp_path)
+    me = _Holder(None, holds=False)
+    runner._workers = [me, _Holder(None, holds=False)]
+    assert runner._should_decline(me) is False
+
+
+async def test_a_segment_handed_back_is_adopted_whole_before_any_split(tmp_path):
+    runner = _runner(tmp_path)
+    served = Segment(index=0, start=0, end=10_000_000 - 1, done=1_000_000)
+    handed_back = Segment(index=1, start=10_000_000, end=20_000_000 - 1, done=0)
+    runner.segments = [served, handed_back]
+    owner = _Holder(served, holds=True)
+    me = _Holder(None, holds=False)
+    runner._workers = [owner, me]
+    runner._owned = {0: owner}
+
+    adopted = await runner._steal_work(me)
+
+    assert adopted is handed_back
+    assert (adopted.start, adopted.end) == (10_000_000, 20_000_000 - 1)
+    assert len(runner.segments) == 2, "nothing was split"
+    assert runner._owned[1] is me
+
+
+async def test_a_refused_worker_only_comes_back_for_orphans(tmp_path):
+    runner = _runner(tmp_path)
+    seg = Segment(index=0, start=0, end=40_000_000 - 1, done=0)
+    runner.segments = [seg]
+    owner = _Holder(seg, holds=True)
+    me = _Holder(None, holds=False)
+    runner._workers = [owner, me]
+    runner._owned = {0: owner}
+    assert await runner._steal_work(me, orphans_only=True) is None
+    assert len(runner.segments) == 1
+
+
+async def test_waiting_for_a_slot_ends_with_the_download(tmp_path):
+    """A refused worker waiting out its turn must not hold a finished
+    download open for the rest of its wait."""
+    runner = _runner(tmp_path)
+    runner.segments = [Segment(index=0, start=0, end=99, done=100)]
+    started = time.monotonic()
+    assert await runner._wait_for_turn(5.0) is False
+    assert time.monotonic() - started < 0.5
+
+
+def test_429_and_503_mean_busy_not_broken():
+    from app.core.errors import ServerBusyError, TransientError, classify_status
+
+    for status in (429, 503):
+        err = classify_status(status)
+        assert isinstance(err, ServerBusyError) and isinstance(err, TransientError)
+    assert not isinstance(classify_status(502), ServerBusyError)
+
+
+async def test_a_lowered_limit_hands_the_segment_back_instead_of_failing():
+    """Two connections were served at once; now the server allows one. The
+    refused worker retries (a slot may be about to free up), and when the
+    retries run out with another connection still served it gives the
+    segment back - it never fails the download."""
+    from app.core.errors import ServerBusyError
+    from app.core.segment import SegmentDeclined
+
+    worker = SegmentWorker(
+        client=None, url="http://example.invalid/x", fd=-1, bucket=None,
+        stop_event=asyncio.Event(), on_commit=lambda n: None, resumable=True,
+        max_retries=2, should_decline=lambda: False,
+    )
+    worker.holds_elsewhere = lambda: True
+
+    async def refuse(*args, **kwargs):
+        raise ServerBusyError("HTTP 503")
+
+    worker._stream_once = refuse
+    with pytest.raises(SegmentDeclined):
+        await worker.run(Segment(index=3, start=0, end=999))

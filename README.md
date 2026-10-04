@@ -713,6 +713,14 @@ Những điểm thiết kế đáng chú ý:
   câu trả lời cho biết kích thước và khả năng resume, còn phần thân của nó chính
   là segment 0, nên kết nối đầu tiên tải luôn thay vì HEAD, probe một byte rồi mới
   gửi yêu cầu thật. File nhỏ chỉ tốn đúng một request.
+- **Tôn trọng giới hạn kết nối của server** — nhiều host chỉ phục vụ vài kết nối
+  mỗi IP và trả 503/429 cho phần còn lại. Trước đây các kết nối bị từ chối cứ thử
+  lại cho tới hết lượt rồi làm hỏng cả lượt tải. Giờ engine nhớ số kết nối nhiều
+  nhất server từng phục vụ cùng lúc: bị từ chối ở mức đó thì kết nối trả segment
+  lại và chờ tới lượt; bị từ chối dưới mức đó (server chưa kịp đóng kết nối cũ)
+  thì hỏi lại sau 50 ms. Kết nối được phục vụ nhận nguyên các segment bị trả, và
+  nếu luồng nó đang đọc chạy tiếp đúng vào segment đó thì đọc luôn, không gửi
+  request mới.
 - **Rớt kết nối giữa chừng thì nối lại ngay** — nếu vừa nhận được dữ liệu, worker
   gửi lại yêu cầu sau 50 ms; chỉ khi server từ chối liên tục mới lùi dần thời gian
   chờ.
@@ -777,6 +785,8 @@ Linux, 8 kết nối:
 | kết nối bị cắt sau vài MB | 0.47 | 0.96 |
 | không giới hạn, 512 MB | 208 MB/s, 12.7 s CPU/GB | 235 MB/s, 11.0 s CPU/GB |
 | 100 file 256 KB, 4 file cùng lúc, cách 50 ms | 9.6 file/s, 3 request/file | 54 file/s, 1 request/file |
+| server chỉ phục vụ 2 kết nối, trả 503 cho phần còn lại | 0.49 | 0.80 |
+| server chỉ phục vụ 1 kết nối | **thất bại** sau 22 s | 1.00 |
 
 Nguồn chênh lệch: kết nối nghẽn bị chia việc theo tốc độ thay vì cắt đôi; probe
 trở thành segment đầu tiên; nối lại ngay sau khi rớt; và mỗi lượt tải không còn
