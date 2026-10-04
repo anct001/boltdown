@@ -13,6 +13,10 @@ downloader's alone, plays the kinds of servers that make IDM worth having:
   slow_link   one connection crawls at 128 KB/s while the others run at
               2 MB/s - the tail that "dynamic segmentation" exists to fix
   flaky       connections are cut after a few megabytes at random
+  conn_limit  the server serves two connections at a time and answers
+              503 to the rest, as file hosts do for free users
+  single_conn the same with one connection - which used to fail the whole
+              download once the refused connections ran out of retries
   unlimited   no limits at all: how fast the engine can go, and how much CPU
               each gigabyte costs
   small_files a hundred 256 KB files, four at a time, 50 ms away: what each
@@ -116,8 +120,27 @@ class Handler(BaseHTTPRequestHandler):
         slow_rate = float(q.get("slow_rate", 0.125)) * MB
         latency = float(q.get("latency", 0)) / 1000
         cut = float(q.get("cut", 0)) * MB    # drop connections after ~this much
+        limit = int(q.get("limit", 0))       # at most this many bodies at once
         with self.server.lock:
             self.server.stats["requests"] += 1
+            refused = bool(limit) and body and self.server.active >= limit
+            if refused:
+                self.server.stats["refused"] = self.server.stats.get("refused", 0) + 1
+            elif body:
+                self.server.active += 1
+        if refused:
+            self.send_response(503)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        try:
+            self._serve_body(q, body, size, rate, slow, slow_rate, latency, cut)
+        finally:
+            if body:
+                with self.server.lock:
+                    self.server.active -= 1
+
+    def _serve_body(self, q, body, size, rate, slow, slow_rate, latency, cut):
         if latency:
             time.sleep(latency)
 
@@ -174,6 +197,7 @@ def serve() -> None:
     server.daemon_threads = True
     server.lock = threading.Lock()
     server.connections = 0
+    server.active = 0
     server.stats = {"requests": 0, "first_byte": None}
     print(server.server_address[1], flush=True)
     server.serve_forever()
@@ -190,6 +214,8 @@ SCENARIOS = {
     "latency": ("rate=4&latency=200", 32 * MB, (32 / 4 + 0.2 + 7 * 0.4) / 8),
     "slow_link": ("rate=2&slow=2&slow_rate=0.125", 64 * MB, 64 / (7 * 2 + 0.125)),
     "flaky": ("rate=4&cut=4", 64 * MB, 64 / (8 * 4)),
+    "conn_limit": ("rate=4&limit=2", 32 * MB, 32 / (2 * 4)),
+    "single_conn": ("rate=4&limit=1", 16 * MB, 16 / 4),
     "unlimited": ("", 512 * MB, None),
     "small_files": ("latency=50", 256 * 1024, None),
 }
