@@ -5,14 +5,16 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
+from PySide6.QtCore import QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -33,9 +35,9 @@ from ..core.schedule import PostAction
 from ..core.task import TaskState
 from ..media.detect import classify
 from ..storage.settings import Settings
-from ..util import postprocess, power
+from ..util import checksums, phone, postprocess, power
 from ..util.log import get_logger
-from ..util.fmt import human_speed
+from ..util.fmt import human_size, human_speed
 from . import icons, theme
 from .add_url_dialog import AddUrlDialog
 from .batch_dialog import BatchDialog
@@ -48,6 +50,7 @@ from .controller import Controller, DownloadItem
 from .dropbox import DropBox
 from .grabber_dialog import GrabberDialog
 from .history_dialog import HistoryDialog
+from .refresh_dialog import BROWSER_WAIT, RefreshDialog
 from .i18n import tr
 from .playlist_dialog import PlaylistDialog
 from .profiles_dialog import SiteProfilesDialog
@@ -82,6 +85,8 @@ log = get_logger(__name__)
 class MainWindow(QMainWindow):
     #: post-processing runs on a worker thread and reports back through this
     _postDone = Signal(str, str)
+    #: a finished file was hashed: (download id, checksums.Verdict)
+    _checksumDone = Signal(int, object)
 
     def __init__(self, controller: Controller, settings: Settings) -> None:
         super().__init__()
@@ -92,6 +97,9 @@ class MainWindow(QMainWindow):
         self._progress_dialogs: dict[int, ProgressDialog] = {}
         #: ids already handled, so one finished download is announced once
         self._finished: set[int] = set()
+        #: (download id, deadline) while "get it from the browser" waits for
+        #: the next captured link to be that download's new address
+        self._awaiting_refresh: tuple[int, float] | None = None
         #: same, for the failure sound - a retrying download must not buzz
         #: once per attempt
         self._failed: set[int] = set()
@@ -129,6 +137,7 @@ class MainWindow(QMainWindow):
             self.toggle_dropbox(True)
 
         self._postDone.connect(self._notify, Qt.QueuedConnection)
+        self._checksumDone.connect(self._on_checksum, Qt.QueuedConnection)
         controller.itemChanged.connect(self._on_item_changed)
         controller.itemAdded.connect(lambda _item: self.sounds.play("added"))
         controller.queueFinished.connect(self._on_queue_finished)
@@ -301,8 +310,23 @@ class MainWindow(QMainWindow):
 
         self.search = QLineEdit()
         self.search.setPlaceholderText(tr("Search"))
+        self.search.setToolTip(tr(
+            "Name, address, source page or error - accents optional, every "
+            "word must match. Ctrl+F to search, Esc to clear."
+        ))
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.proxy.set_search)
+        self.search.installEventFilter(self)
+        self.search_count = QLabel("")
+        self.search_count.setObjectName("searchCount")
+        for signal in (self.proxy.rowsInserted, self.proxy.rowsRemoved,
+                       self.proxy.modelReset, self.proxy.layoutChanged):
+            signal.connect(self._update_search_count)
+        self.search.textChanged.connect(self._update_search_count)
+        find = QAction(self)
+        find.setShortcut(QKeySequence.StandardKey.Find)
+        find.triggered.connect(self._focus_search)
+        self.addAction(find)
 
         self.table = QTableView()
         self.table.setModel(self.proxy)
@@ -334,7 +358,12 @@ class MainWindow(QMainWindow):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.addWidget(self.search)
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 8, 0)
+        search_row.setSpacing(8)
+        search_row.addWidget(self.search, 1)
+        search_row.addWidget(self.search_count)
+        right_layout.addLayout(search_row)
         right_layout.addWidget(self.table, 1)
         right_layout.addWidget(self.scene)
 
@@ -557,6 +586,8 @@ class MainWindow(QMainWindow):
         url = (message.get("url") or "").strip()
         if not url:
             return
+        if self._take_refresh(message):
+            return
         options = {
             "url": url,
             "filename": message.get("filename") or None,
@@ -665,6 +696,10 @@ class MainWindow(QMainWindow):
             return
 
         dialog = AddUrlDialog(self.settings, url=options["url"], parent=self)
+        # A site rule's folder is offered, not hidden behind the default.
+        dialog.dir_edit.setText(
+            str(self.controller.folder_for(options["url"], options.get("filename")))
+        )
         if options.get("filename"):
             dialog.name_edit.setText(options["filename"])
         if any(options.get(k) for k in ("referer", "cookie", "user_agent")):
@@ -745,25 +780,65 @@ class MainWindow(QMainWindow):
             # Once per download, not once per retry.
             self._failed.add(item.db_id)
             self.sounds.play("error")
+            self._tell_phone("failed", tr("Download failed"),
+                             f"{item.filename}\n{item.error or ''}".strip())
 
     def _on_queue_finished(self, queue_id: int) -> None:
         self.sounds.play("queue_done")
+        info = self.controller.queue(queue_id)
+        self._tell_phone("queue_done", tr("Queue finished"), info.name if info else "")
+
+    def _tell_phone(self, event: str, title: str, body: str) -> None:
+        """Send to the phone, if one is set up and wants this kind of news."""
+        if not self.settings.get(f"phone_on_{event}"):
+            return
+        target = phone.Target.from_settings(self.settings)
+        if target.ready:
+            phone.send_later(target, f"Boltdown: {title}", body)
 
     def _on_download_finished(self, item: DownloadItem) -> None:
         """Notify, then run whatever post-processing is switched on."""
         if self.settings.get("notify_on_finish"):
             self._notify(tr("Download finished"), item.filename)
+        size = f" ({human_size(item.size)})" if item.size else ""
+        self._tell_phone("finished", tr("Download finished"), f"{item.filename}{size}")
         wants_extract = (
             self.settings.get("auto_extract") and postprocess.is_archive(item.path)
         )
         wants_scan = self.settings.get("scan_with_defender")
-        if not (wants_extract or wants_scan):
+        expected = self.controller.expected_checksum(item.db_id)
+        wants_lookup = (
+            expected is None
+            and bool(self.settings.get("auto_checksum"))
+            and checksums.worth_checking(item.filename, item.size)
+        )
+        if not (wants_extract or wants_scan or expected or wants_lookup):
             return
 
         path = item.path
         name = item.filename
+        db_id = item.db_id
+        url = item.url
+        request = self.controller.request_for(db_id) if wants_lookup else None
 
         def work() -> None:
+            # First the checksum: a file that is not what the site published
+            # is not one to scan as clean or to unpack.
+            target = expected
+            if target is None and request is not None:
+                target = checksums.discover(
+                    checksums.http_fetcher(
+                        proxy=request.proxy, user_agent=request.user_agent,
+                        verify_tls=request.verify_tls,
+                    ),
+                    url, name,
+                )
+            if target is not None:
+                verdict = checksums.verify(path, target)
+                if verdict is not None:
+                    self._checksumDone.emit(db_id, verdict)
+                    if not verdict.ok:
+                        return
             if wants_scan:
                 result = postprocess.scan(path)
                 if not result.ok:
@@ -777,6 +852,22 @@ class MainWindow(QMainWindow):
                 )
 
         threading.Thread(target=work, name=f"post-{item.db_id}", daemon=True).start()
+
+    def _on_checksum(self, db_id: int, verdict) -> None:
+        self.controller.record_checksum(db_id, verdict)
+        item = self.controller.item(db_id)
+        name = item.filename if item else str(db_id)
+        algorithm = verdict.expected.algorithm.upper()
+        if verdict.ok:
+            self._notify(tr("Checksum verified"), f"{name} ({algorithm})")
+        else:
+            self.sounds.play("error")
+            self._tell_phone("failed", tr("Checksum mismatch"), name)
+            self._notify(
+                tr("Checksum mismatch"),
+                tr("%s is not the file the site published - it may be corrupted "
+                   "or tampered with.") % name,
+            )
 
     def _update_action_states(self, *_args) -> None:
         items = self._selected_items()
@@ -821,6 +912,102 @@ class MainWindow(QMainWindow):
         else:
             _open_path(str(Path(item.save_path)))
 
+    # ------------------------------------------------------------------ search
+
+    def _focus_search(self) -> None:
+        self.search.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self.search.selectAll()
+
+    def _update_search_count(self, *_args) -> None:
+        """"12 / 340" while a search is on; nothing otherwise."""
+        if not self.proxy.searching:
+            self.search_count.setText("")
+            return
+        self.search_count.setText(
+            tr("%d of %d") % (self.proxy.rowCount(), self.model.rowCount())
+        )
+
+    def eventFilter(self, watched, event) -> bool:
+        # Esc in the search box clears it and hands the keyboard back to the
+        # list, the way a find bar does.
+        if (
+            watched is self.search
+            and event.type() == event.Type.KeyPress
+            and event.key() == Qt.Key.Key_Escape
+            and self.search.text()
+        ):
+            self.search.clear()
+            self.table.setFocus()
+            return True
+        return super().eventFilter(watched, event)
+
+    # ------------------------------------------------ refresh download address
+
+    def refresh_address(self, item: DownloadItem) -> None:
+        """Ask for a new link for `item` - pasted, or caught from the browser."""
+        if not self.controller.can_refresh(item.db_id):
+            return
+        dialog = RefreshDialog(item, self)
+        if dialog.exec() != RefreshDialog.DialogCode.Accepted:
+            return
+        if dialog.from_browser:
+            self._awaiting_refresh = (item.db_id, time.monotonic() + BROWSER_WAIT)
+            QDesktopServices.openUrl(QUrl(item.referer))
+            self._notify(
+                tr("Refresh download address"),
+                tr("Click the download link again in the browser; its new "
+                   "address will be used for %s") % item.filename,
+            )
+            return
+        # A pasted link brings no session of its own; the one this download
+        # already had is the best there is.
+        self.controller.refresh_address(
+            item.db_id, dialog.address(),
+            referer=item.referer, cookie=item.cookie, user_agent=item.user_agent,
+        )
+
+    def _take_refresh(self, message: dict) -> bool:
+        """Is this captured link the new address a download is waiting for?
+
+        After "Get it from the browser" the next link the extension catches
+        is attached to that download - unless it is plainly another file,
+        which the size tells when both sides know it.
+        """
+        waiting, self._awaiting_refresh = self._awaiting_refresh, None
+        if waiting is None:
+            return False
+        db_id, deadline = waiting
+        item = self.controller.item(db_id)
+        if item is None or time.monotonic() > deadline or not self.controller.can_refresh(db_id):
+            return False
+        if message.get("type") == "media" or classify(message["url"]).is_media:
+            # A video or a stream is no new address for a plain file.
+            self._awaiting_refresh = waiting
+            return False
+        size = message.get("size")
+        if isinstance(size, int) and size > 0 and item.size and size != item.size:
+            self._awaiting_refresh = waiting  # keep waiting for the right one
+            self._notify(
+                tr("Refresh download address"),
+                tr("That link is a different file (%s); it was added as a new download")
+                % (message.get("filename") or message.get("url")),
+            )
+            return False
+        url = message["url"].strip()
+        try:
+            done = self.controller.refresh_address(
+                db_id, url,
+                referer=message.get("referer") or item.referer,
+                cookie=message.get("cookie") or None,
+                user_agent=message.get("user_agent") or item.user_agent,
+            )
+        except ValueError:
+            return False
+        if done:
+            self._notify(tr("Refresh download address"),
+                         tr("New address received; continuing %s") % item.filename)
+        return done
+
     def _show_context_menu(self, position) -> None:
         items = self._selected_items()
         if not items:
@@ -840,6 +1027,11 @@ class MainWindow(QMainWindow):
         self._add_queue_menu(menu, items)
         menu.addSeparator()
         menu.addAction(icons.link_icon(), tr("Copy URL"), lambda: self._copy_url(item))
+        if self.controller.can_refresh(item.db_id):
+            menu.addAction(
+                icons.refresh_icon(), tr("Refresh download address..."),
+                lambda: self.refresh_address(item),
+            )
         if item.state is TaskState.COMPLETED:
             menu.addAction(
                 icons.shield_icon(), tr("Verify checksum"),

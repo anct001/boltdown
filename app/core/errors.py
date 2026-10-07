@@ -64,7 +64,10 @@ def classify_status(status: int) -> DownloadError | None:
     if status in (200, 206):
         return None
     if status == 401:
-        return AuthRequiredError("HTTP 401: the server asked for a password")
+        return AuthRequiredError(
+            "HTTP 401: the server asked for a password - add a login for this "
+            "site under Options > Site rules"
+        )
     if status == 403:
         return ForbiddenError(
             "HTTP 403: the server refused - it may be blocking anything that "

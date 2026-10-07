@@ -8,7 +8,6 @@ spaces, or the `<hash>  <filename>` line straight out of a .sha256 file.
 
 from __future__ import annotations
 
-import hashlib
 import threading
 from pathlib import Path
 
@@ -26,42 +25,17 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ..util.checksums import hash_file
 from ..util.fmt import human_size
 from . import theme
 from .i18n import tr
 
 ALGORITHMS = ("sha256", "md5", "sha1")
-BLOCK = 1 << 20
 
 
 def normalise(value: str) -> str:
     """`ABCD1234  file.zip` -> `abcd1234`."""
     return value.strip().split()[0].lower() if value.strip() else ""
-
-
-def hash_file(
-    path: Path,
-    algorithm: str = "sha256",
-    *,
-    on_progress=None,
-    stop: threading.Event | None = None,
-) -> str | None:
-    """Digest `path`; None if it was cancelled."""
-    digest = hashlib.new(algorithm)
-    total = path.stat().st_size or 1
-    done = 0
-    with open(path, "rb") as handle:
-        while True:
-            if stop is not None and stop.is_set():
-                return None
-            block = handle.read(BLOCK)
-            if not block:
-                break
-            digest.update(block)
-            done += len(block)
-            if on_progress is not None:
-                on_progress(done * 100 // total)
-    return digest.hexdigest()
 
 
 class _Worker(QObject):

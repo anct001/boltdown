@@ -403,6 +403,17 @@ resume được. Tạm dừng giữa chừng thì các segment đã tải nằm 
 còn dưới mức đó. Không có audio riêng thì bản 360p có tiếng được ưu tiên hơn bản
 1080p câm.
 
+### Phụ đề và ảnh bìa
+
+**Tuỳ chọn → Video**: ô *Phụ đề* nhận danh sách ngôn ngữ (`vi, en`) hoặc `all`;
+tick *Gắn ảnh thumbnail làm ảnh bìa*. Phụ đề do người làm được ưu tiên hơn phụ
+đề tự động; `en` lấy cả `en-US` khi không có `en` trơn; `all` chỉ lấy phụ đề do
+người làm (YouTube có caption máy cho cả trăm ngôn ngữ). Có ffmpeg và file là
+MP4/MKV thì phụ đề (mov_text trong MP4, srt trong MKV, có gắn mã ngôn ngữ) và ảnh
+bìa được ghép thẳng vào file mà không encode lại; không thì lưu cạnh file với
+tên trình phát tự tìm: `Phim.vi.vtt`, `Phim.jpg`. Lỗi ở bước này không bao giờ
+làm hỏng lượt tải — video đã xong rồi.
+
 ## Bắt link từ clipboard
 
 Bật ở **Tuỳ chọn → Clipboard** (hoặc menu Tuỳ chọn, hoặc chuột phải vào biểu
@@ -431,11 +442,46 @@ nếu mẫu sinh quá 10.000 URL (`app/util/patterns.py`).
 
 ## Lịch sử và kiểm tra checksum
 
+Ô **Tìm kiếm** trên danh sách (`Ctrl+F`, `Esc` để xoá) tìm trong tên file, địa
+chỉ, trang nguồn và nội dung lỗi; gõ có dấu hay không đều được ("bao cao" khớp
+"Báo cáo"), nhiều từ thì phải khớp hết, bên cạnh hiện số kết quả.
+
 Mục đã tải xong được ghi vào bảng `history` ngay lúc xong, nên xoá khỏi danh
 sách vẫn tra lại được: **Tệp → Lịch sử** cho tìm kiếm, copy URL, tải lại hoặc
 xoá. Chuột phải một mục đã xong → **Kiểm tra checksum** để tính SHA-256/MD5/SHA-1
 (chạy trên luồng nền, có thanh tiến độ) rồi dán giá trị trên trang tải về vào để
 so — chấp nhận cả kiểu `<hash>  <tên tệp>` copy thẳng từ file `.sha256`.
+
+### Tự kiểm tra khi tải xong
+
+- **Dán checksum lúc thêm link** — ô **Checksum** trong phần *Nâng cao* của hộp
+  thoại thêm link nhận SHA-256, SHA-1, SHA-512 hoặc MD5 (tự nhận ra theo độ dài),
+  kể cả `sha256:…`, `<hash>  <tên tệp>` hay kiểu BSD `SHA256 (tệp) = …`.
+- **Tự tìm checksum trang web công bố** — với file cài đặt, file nén và ảnh đĩa
+  từ 1 MB trở lên (`.iso`, `.exe`, `.msi`, `.zip`, `.7z`, `.dmg`, `.apk`, …), khi
+  tải xong app thử `<file>.sha256`, `.sha512`, `.sha1`, `.md5` rồi `SHA256SUMS`,
+  `sha256sums.txt`, `SHA512SUMS`, `checksums.txt`, `MD5SUMS` trong cùng thư mục.
+  Phần `?chữ-ký` của link được bỏ đi khi đoán; không gửi cookie; mỗi file listing
+  đọc tối đa 512 KB. Tắt trong **Tuỳ chọn → Danh mục** nếu không muốn.
+- Khớp thì báo xanh. Lệch thì báo đỏ kèm tiếng báo lỗi, lượt tải ghi lỗi
+  `SHA256 mismatch: expected …, got …`, và **file không được giải nén hay quét
+  tiếp** — một file khác với file đã công bố không nên được mở.
+
+## Làm mới địa chỉ tải
+
+Link có chữ ký hoặc có hạn (host file, ổ đĩa đám mây, CDN) hết hạn sau một lúc,
+và tải tiếp lúc đó chỉ nhận về 403/410. Chuột phải lượt tải chưa xong →
+**Làm mới địa chỉ tải…**:
+
+- **Dán link mới**, hoặc
+- **Lấy từ trình duyệt** — app mở lại trang nguồn; bấm lại link tải trên trang
+  đó, extension bắt link và gắn vào *lượt tải cũ* (kèm cookie mới) thay vì tạo
+  lượt mới. Link có kích thước khác hẳn thì được coi là file khác và thêm như
+  bình thường; app chờ tối đa 5 phút.
+
+Phần đã tải được giữ: file `.part` được ghi nhận là của lượt tải này, còn kích
+thước và ETag server trả về cho link mới vẫn quyết định có dùng lại các byte đó
+hay không. Lượt tải đang chạy cũng đổi được: nó tạm dừng, đổi link rồi chạy tiếp.
 
 ## Hộp thả nổi
 
@@ -453,6 +499,40 @@ giá trị gõ cho từng lượt tải luôn thắng quy tắc.
 
 Đây là cách xử lý thực tế khi một CDN trả 403 lúc mở quá 4 kết nối trong khi
 chỗ khác cho 16.
+
+- **Đăng nhập** — *Tên đăng nhập* / *Mật khẩu* cho trang đòi HTTP Basic hoặc
+  Digest: app đọc lời thách 401 rồi chọn đúng kiểu, và không bao giờ gửi kèm
+  thông tin đăng nhập khi bị chuyển hướng sang tên miền khác. Mật khẩu được mã
+  hoá bằng DPAPI của Windows (chỉ tài khoản Windows của bạn giải được) trước khi
+  ghi vào cơ sở dữ liệu.
+- **Thư mục lưu** — ví dụ `{host}/{year}-{month}` hoặc `D:\Work\{category}`.
+  Trường dùng được: `{host} {date} {year} {month} {day} {category}`. Đường dẫn
+  tương đối nằm trong thư mục tải mặc định; ký tự Windows không cho phép bị thay
+  bằng `_` và `..` bị bỏ. Hộp thoại thêm link điền sẵn thư mục này, vẫn đổi tay
+  được.
+
+## Nhiều nguồn (mirror)
+
+Ô **Mirror** trong phần *Nâng cao* của hộp thoại thêm link nhận thêm các địa chỉ
+khác của cùng file, mỗi dòng một link. Trước khi tải, mỗi mirror được thử: chỉ
+mirror trả đúng kích thước và cho tải theo đoạn mới được dùng. Các kết nối được
+chia vòng tròn giữa các nguồn, nên hai server mỗi cái 8 MB/s cho ra gần 16 MB/s;
+một mirror hỏng giữa chừng thì kết nối đó quay về link chính và tải tiếp từ đúng
+chỗ đang dở. Danh sách mirror được lưu cùng lượt tải nên tạm dừng rồi tiếp tục
+vẫn dùng lại.
+
+## Báo về điện thoại
+
+**Tuỳ chọn → Điện thoại** gửi tin khi một file tải xong, tải lỗi (kể cả sai
+checksum) hoặc một hàng đợi chạy xong — tiện khi để máy tải qua đêm:
+
+- **ntfy** — không cần tài khoản: cài app ntfy, đăng ký một *topic* có tên dài
+  khó đoán, dán tên đó vào. Dùng `ntfy.sh` hoặc server ntfy riêng.
+- **Telegram** — tạo bot với @BotFather, dán token và chat id. Token được mã hoá
+  như mật khẩu ở trên.
+
+Nút *Gửi thử* kiểm tra ngay. Tin được gửi trên luồng riêng nên mạng chậm không
+làm đứng cửa sổ hay lượt tải; tin gửi qua proxy đã đặt trong app.
 
 ## Playlist và kênh video
 
@@ -787,6 +867,7 @@ Linux, 8 kết nối:
 | 100 file 256 KB, 4 file cùng lúc, cách 50 ms | 9.6 file/s, 3 request/file | 54 file/s, 1 request/file |
 | server chỉ phục vụ 2 kết nối, trả 503 cho phần còn lại | 0.49 | 0.80 |
 | server chỉ phục vụ 1 kết nối | **thất bại** sau 22 s | 1.00 |
+| server 8 MB/s tổng, 64 MB, thêm một mirror 8 MB/s | 0.48 (8.3 s, chỉ một nguồn) | 0.97 (4.1 s) |
 
 Nguồn chênh lệch: kết nối nghẽn bị chia việc theo tốc độ thay vì cắt đôi; probe
 trở thành segment đầu tiên; nối lại ngay sau khi rớt; và mỗi lượt tải không còn
@@ -797,7 +878,7 @@ trên Windows (đo trên CI) trước khi gửi request đầu tiên. `tests/tes
 chạy lại các tình huống này và giữ ngưỡng thấp hơn một chút so với số đo trên, để
 máy CI bận vẫn qua.
 
-Khoảng 600 test, chạy hết khoảng một đến hai phút. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
+Khoảng 700 test, chạy hết khoảng một đến hai phút. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
 cầu (bỏ qua `Range`, chặn `HEAD`, ngắt kết nối giữa chừng, trả 503, đổi `ETag`,
 không gửi `Content-Length`) — xem `tests/server.py`. Phần giao diện chạy headless qua
 Qt platform `offscreen`, kể cả kiểm tra vẽ biểu đồ và thanh segment. Phần trình duyệt

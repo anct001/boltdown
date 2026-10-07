@@ -277,7 +277,73 @@ class MediaTaskRunner:
             if source.suffix.lower() != output.suffix.lower():
                 output = output.with_suffix(source.suffix)
             os.replace(source, output)
+        output = await self._add_extras(output, info, plan)
         self.filename = output.name
+        return output
+
+    # ---------------------------------------------------- subtitles and cover
+
+    async def _add_extras(self, output: Path, info: ytdlp.MediaInfo, plan) -> Path:
+        """Subtitles and the thumbnail, inside the file when it can hold them.
+
+        What the container cannot take (or everything, without ffmpeg) is
+        saved beside it - `Movie.vi.vtt`, `Movie.jpg` - the names players look
+        for. Nothing here can fail the download: the video is already done.
+        """
+        subtitles = ytdlp.pick_subtitles(info, self.request.subtitle_langs)
+        want_cover = bool(self.request.embed_thumbnail and info.thumbnail)
+        if not subtitles and not want_cover:
+            return output
+        work = self._work_dir
+        assert work is not None
+
+        spec = self.request.to_spec()
+        spec.url = info.webpage_url or self.request.url
+        fetched: list[tuple[Path, str, str]] = []
+        cover_source: Path | None = None
+        async with build_client(spec) as client:
+            for track in subtitles:
+                path = work / f"subtitle.{track.lang}.{track.ext}"
+                if await _fetch_small(client, track.url, path):
+                    fetched.append((path, track.lang, track.ext))
+            if want_cover:
+                suffix = Path(info.thumbnail.split("?")[0]).suffix.lower() or ".jpg"
+                path = work / f"cover{suffix}"
+                if await _fetch_small(client, info.thumbnail, path):
+                    cover_source = path
+
+        container = output.suffix.lstrip(".").lower()
+        binary = ffmpeg_mod.find_ffmpeg(self.request.ffmpeg_path)
+        embed_subs = [(p, lang) for p, lang, _ in fetched] if (
+            binary and ffmpeg_mod.can_embed_subtitles(container)
+        ) else []
+        embed_cover = bool(binary and cover_source and ffmpeg_mod.can_embed_thumbnail(container))
+        sidecar_subs = fetched if not embed_subs else []
+        sidecar_cover = cover_source if not embed_cover else None
+
+        if embed_subs or embed_cover:
+            temp = output.with_name(output.stem + ".extras" + output.suffix)
+            try:
+                cover = None
+                if embed_cover:
+                    cover = work / "cover.jpg"
+                    if cover_source != cover:
+                        await ffmpeg_mod.to_jpeg(cover_source, cover, ffmpeg=binary)
+                await ffmpeg_mod.embed_extras(
+                    output, temp, subtitles=embed_subs, cover=cover,
+                    video_streams=1 if plan.video is not None else 0, ffmpeg=binary,
+                )
+                os.replace(temp, output)
+            except (ffmpeg_mod.FfmpegError, OSError) as exc:
+                log.warning("media task %d: could not embed extras: %s", self.id, exc)
+                with contextlib.suppress(OSError):
+                    temp.unlink()
+                sidecar_subs, sidecar_cover = fetched, cover_source
+
+        for path, lang, ext in sidecar_subs:
+            shutil.copyfile(path, output.with_name(f"{output.stem}.{lang}.{ext}"))
+        if sidecar_cover is not None:
+            shutil.copyfile(sidecar_cover, output.with_name(output.stem + sidecar_cover.suffix))
         return output
 
     def _track_cookie(self, track: ytdlp.Track) -> str | None:
@@ -433,3 +499,21 @@ class MediaTaskRunner:
             shutil.rmtree(self._work_dir)
         release_path(self._work_dir)
         self._work_dir = None
+
+
+async def _fetch_small(client, url: str, path: Path, limit: int = 20 << 20) -> bool:
+    """A subtitle or a picture: one GET, kept only when it is complete."""
+    try:
+        async with client.stream("GET", url) as response:
+            if response.status_code != 200:
+                return False
+            data = bytearray()
+            async for chunk in response.aiter_bytes():
+                data += chunk
+                if len(data) > limit:
+                    return False
+    except Exception as exc:  # noqa: BLE001 - an extra, never the download
+        log.info("could not fetch %s: %s", url, exc)
+        return False
+    path.write_bytes(bytes(data))
+    return bool(data)

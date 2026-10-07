@@ -17,6 +17,8 @@ downloader's alone, plays the kinds of servers that make IDM worth having:
               503 to the rest, as file hosts do for free users
   single_conn the same with one connection - which used to fail the whole
               download once the refused connections ran out of retries
+  mirrors     two servers with the same file, each with 8 MB/s for everyone
+              together: one alone takes twice as long as both
   unlimited   no limits at all: how fast the engine can go, and how much CPU
               each gigabyte costs
   small_files a hundred 256 KB files, four at a time, 50 ms away: what each
@@ -35,7 +37,6 @@ import argparse
 import asyncio
 import hashlib
 import json
-import os
 import random
 import subprocess
 import sys
@@ -121,6 +122,8 @@ class Handler(BaseHTTPRequestHandler):
         latency = float(q.get("latency", 0)) / 1000
         cut = float(q.get("cut", 0)) * MB    # drop connections after ~this much
         limit = int(q.get("limit", 0))       # at most this many bodies at once
+        self.pool = q.get("pool")            # connections sharing one uplink
+        self.pool_rate = float(q.get("pool_rate", 0)) * MB
         with self.server.lock:
             self.server.stats["requests"] += 1
             refused = bool(limit) and body and self.server.active >= limit
@@ -176,6 +179,16 @@ class Handler(BaseHTTPRequestHandler):
                     with self.server.lock:
                         if self.server.stats["first_byte"] is None:
                             self.server.stats["first_byte"] = time.time()
+                if self.pool and self.pool_rate:
+                    # One uplink for every connection in the pool: each chunk
+                    # waits for its slot on a clock they all share.
+                    with self.server.lock:
+                        clock = self.server.pools.get(self.pool, time.monotonic())
+                        slot = max(clock, time.monotonic())
+                        self.server.pools[self.pool] = slot + len(piece) / self.pool_rate
+                    wait = slot - time.monotonic()
+                    if wait > 0:
+                        time.sleep(wait)
                 self.wfile.write(piece)
                 sent += len(piece)
                 if self.flaky_budget is not None:
@@ -192,12 +205,21 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
 
 
+class BenchServer(ThreadingHTTPServer):
+    # The default listen backlog is 5. Eight connections opened at once then
+    # overflow it, and Windows answers the overflow with a reset that the
+    # client only retries 0.5-2 s later - time the bench would charge to the
+    # engine.
+    request_queue_size = 128
+
+
 def serve() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = BenchServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = True
     server.lock = threading.Lock()
     server.connections = 0
     server.active = 0
+    server.pools = {}
     server.stats = {"requests": 0, "first_byte": None}
     print(server.server_address[1], flush=True)
     server.serve_forever()
@@ -216,6 +238,7 @@ SCENARIOS = {
     "flaky": ("rate=4&cut=4", 64 * MB, 64 / (8 * 4)),
     "conn_limit": ("rate=4&limit=2", 32 * MB, 32 / (2 * 4)),
     "single_conn": ("rate=4&limit=1", 16 * MB, 16 / 4),
+    "mirrors": ("pool=a&pool_rate=8", 64 * MB, 64 / 16),
     "unlimited": ("", 512 * MB, None),
     "small_files": ("latency=50", 256 * 1024, None),
 }
@@ -223,10 +246,16 @@ SMALL_FILES = 100
 SMALL_PARALLEL = 4
 
 
-async def download(url: str, target: Path, connections: int):
+#: scenario -> the queries of its mirrors (same path, so the same file)
+MIRRORS = {"mirrors": ["pool=b&pool_rate=8"]}
+
+
+async def download(url: str, target: Path, connections: int, mirrors: list[str] | None = None):
     from app.core.task import DownloadRequest, TaskRunner
 
-    runner = TaskRunner(1, DownloadRequest(url=url, save_dir=target, connections=connections))
+    runner = TaskRunner(1, DownloadRequest(
+        url=url, save_dir=target, connections=connections, mirrors=mirrors or []
+    ))
     state = await runner.run()
     return runner, state
 
@@ -288,10 +317,15 @@ def run_scenario(base: str, name: str, connections: int) -> dict:
     query, size, ideal = SCENARIOS[name]
     get_json(base, "/__reset")
     url = f"{base}/{name}.bin?size={size}" + (f"&{query}" if query else "")
+    # A mirror is another host for the same bytes: 127.0.0.1 vs localhost.
+    mirrors = [
+        f"{base.replace('127.0.0.1', 'localhost')}/{name}.bin?size={size}&{extra}"
+        for extra in MIRRORS.get(name, [])
+    ]
     with tempfile.TemporaryDirectory(prefix="boltdown-bench-") as tmp:
         before = time.process_time()
         started = time.time()
-        runner, state = asyncio.run(download(url, Path(tmp), connections))
+        runner, state = asyncio.run(download(url, Path(tmp), connections, mirrors))
         elapsed = time.time() - started
         after = time.process_time()
         stats = get_json(base, "/__stats")

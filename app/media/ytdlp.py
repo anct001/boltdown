@@ -129,6 +129,19 @@ class Track:
         return self.format_id or self.ext
 
 
+#: subtitle formats ffmpeg can put into a container, best first
+SUBTITLE_FORMATS = ("srt", "vtt", "ass")
+
+
+@dataclass(slots=True)
+class SubtitleTrack:
+    lang: str
+    url: str
+    ext: str
+    #: machine-made captions (YouTube's "auto-generated")
+    auto: bool = False
+
+
 @dataclass(slots=True)
 class MediaInfo:
     title: str
@@ -137,6 +150,8 @@ class MediaInfo:
     ext: str = "mp4"
     tracks: list[Track] = field(default_factory=list)
     thumbnail: str | None = None
+    #: language -> its subtitle, the people-made one when there is one
+    subtitles: dict[str, SubtitleTrack] = field(default_factory=dict)
 
     def videos(self) -> list[Track]:
         return [t for t in self.tracks if t.has_video and t.is_usable]
@@ -293,7 +308,47 @@ def info_from_dict(data: dict[str, Any]) -> MediaInfo:
         ext=str(data.get("ext") or "mp4"),
         tracks=tracks,
         thumbnail=data.get("thumbnail"),
+        subtitles=_subtitles_from(data),
     )
+
+
+def _subtitles_from(data: dict[str, Any]) -> dict[str, SubtitleTrack]:
+    """One usable subtitle per language; people-made beats machine-made."""
+    found: dict[str, SubtitleTrack] = {}
+    for key, auto in (("automatic_captions", True), ("subtitles", False)):
+        for lang, formats in (data.get(key) or {}).items():
+            if lang == "live_chat" or not isinstance(formats, list):
+                continue
+            usable = {f.get("ext"): f for f in formats if isinstance(f, dict) and f.get("url")}
+            for ext in SUBTITLE_FORMATS:
+                if ext in usable:
+                    # Later keys win: a real subtitle replaces a caption.
+                    found[lang] = SubtitleTrack(lang, str(usable[ext]["url"]), ext, auto)
+                    break
+    return found
+
+
+def pick_subtitles(info: MediaInfo, wanted: list[str]) -> list[SubtitleTrack]:
+    """The subtitles asked for, in the order asked.
+
+    "en" also takes "en-US" when there is no plain "en"; "all" takes every
+    language that has a people-made subtitle (machine captions exist for a
+    hundred languages, and nobody wants a hundred tracks).
+    """
+    picked: list[SubtitleTrack] = []
+    for lang in (w.strip().lower() for w in wanted):
+        if not lang:
+            continue
+        if lang == "all":
+            picked += [t for t in info.subtitles.values() if not t.auto]
+            continue
+        exact = next((t for code, t in info.subtitles.items() if code.lower() == lang), None)
+        regional = next(
+            (t for code, t in info.subtitles.items() if code.lower().split("-")[0] == lang), None
+        )
+        if exact or regional:
+            picked.append(exact or regional)
+    return list({id(t): t for t in picked}.values())
 
 
 def build_options(

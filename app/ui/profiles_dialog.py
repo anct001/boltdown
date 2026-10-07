@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from ..core.profiles import SiteProfile
 from ..storage.db import Database
+from ..util.credentials import protect
 from ..util.fmt import human_size, parse_size
 from .i18n import tr
 
@@ -69,6 +70,16 @@ class SiteProfilesDialog(QDialog):
         self.cookie = QLineEdit()
         self.proxy = QLineEdit()
         self.proxy.setPlaceholderText("http://127.0.0.1:8080  /  socks5://127.0.0.1:1080")
+        self.folder = QLineEdit()
+        self.folder.setPlaceholderText("{host}/{year}-{month}")
+        self.folder.setToolTip(tr(
+            "Folder for this site's downloads, under the download folder or "
+            "absolute. Fields: {host} {date} {year} {month} {day} {category}"
+        ))
+        self.username = QLineEdit()
+        self.username.setPlaceholderText(tr("only if the site asks for a login"))
+        self.password = QLineEdit()
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
         self.note = QLineEdit()
 
         form = QFormLayout()
@@ -80,6 +91,9 @@ class SiteProfilesDialog(QDialog):
         form.addRow(tr("Referer:"), self.referer)
         form.addRow(tr("Cookie:"), self.cookie)
         form.addRow(tr("Proxy:"), self.proxy)
+        form.addRow(tr("Save in folder:"), self.folder)
+        form.addRow(tr("User name:"), self.username)
+        form.addRow(tr("Password:"), self.password)
         form.addRow(tr("Note"), self.note)
 
         new = QPushButton(tr("New"))
@@ -153,12 +167,16 @@ class SiteProfilesDialog(QDialog):
         self.referer.setText(profile.referer or "")
         self.cookie.setText(profile.cookie or "")
         self.proxy.setText(profile.proxy or "")
+        self.folder.setText(profile.folder or "")
+        self.username.setText(profile.username or "")
+        self.password.setText(profile.password or "")
         self.note.setText(profile.note or "")
 
     def clear_form(self) -> None:
         self.table.setCurrentItem(None)
         for field in (self.pattern, self.limit, self.user_agent, self.referer,
-                      self.cookie, self.proxy, self.note):
+                      self.cookie, self.proxy, self.folder, self.username, self.password,
+                      self.note):
             field.clear()
         self.enabled.setChecked(True)
         self.connections.setValue(INHERIT)
@@ -186,6 +204,9 @@ class SiteProfilesDialog(QDialog):
             cookie=self.cookie.text().strip() or None,
             proxy=self.proxy.text().strip() or None,
             note=self.note.text().strip() or None,
+            folder=self.folder.text().strip() or None,
+            username=self.username.text().strip() or None,
+            password=protect(self.password.text()) if self.username.text().strip() else None,
         )
         self.reload()
 

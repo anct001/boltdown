@@ -14,15 +14,18 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
 
-from ..core.categories import category_for
+from ..core.categories import category_for, target_dir
 from ..core.engine import Engine, EngineEvent
-from ..core.profiles import SiteProfile, apply_to
-from ..core.resume import meta_path_for
-from ..core.task import DownloadRequest, TaskSnapshot, TaskState
+from ..core.profiles import SiteProfile, apply_to, render_folder
+from ..core.profiles import match as match_profile
+from ..core.resume import ResumeMeta, meta_path_for
+from ..core.task import PART_SUFFIX, DownloadRequest, TaskSnapshot, TaskState
 from ..media.detect import classify, suggested_name
 from ..storage.db import Database
 from ..storage.settings import Settings
 from ..util import filenames, proxy
+from ..util.checksums import Expected, Verdict, parse_expected
+from ..util.credentials import unprotect
 from ..util.log import get_logger
 
 log = get_logger(__name__)
@@ -63,6 +66,8 @@ class DownloadItem:
     manual_pause: bool = False
     #: the file name is settled - do not let a re-probe rename it
     name_locked: bool = False
+    #: other addresses for the same file, fetched from alongside `url`
+    mirrors: list[str] = field(default_factory=list)
 
     @property
     def category(self) -> str:
@@ -129,6 +134,8 @@ class Controller(QObject):
         self._by_engine_id: dict[int, int] = {}
         self._last_sync: dict[int, float] = {}
         self._running_queues: set[int] = set()
+        #: downloads to start again once their pause lands (a new address)
+        self._restart_when_paused: set[int] = set()
 
         self.engine = Engine(
             max_concurrent=settings.max_concurrent,
@@ -184,6 +191,7 @@ class Controller(QObject):
                 proxy=extra["proxy"] if extra else None,
                 queue_id=row["queue_id"],
                 name_locked=bool(row["name_locked"]),
+                mirrors=self.db.get_mirrors(row["id"]),
             )
             self._items[item.db_id] = item
             self.itemAdded.emit(item)
@@ -220,11 +228,16 @@ class Controller(QObject):
         max_height: int | None = None,
         audio_only: bool = False,
         queue_id: int | None = None,
+        checksum: str | None = None,
+        mirrors: list[str] | None = None,
     ) -> DownloadItem:
+        expected = parse_expected(checksum) if checksum else None
+        if checksum and expected is None:
+            raise ValueError(f"not a checksum: {checksum!r}")
         # A queued download waits for its queue, never for the Add dialog.
         if queue_id is not None:
             start_now = False
-        save_dir = Path(save_dir) if save_dir else self.settings.download_dir
+        save_dir = Path(save_dir) if save_dir else self.folder_for(url, filename)
         chosen = filenames.sanitize(filename) if filename else None
         guess = chosen or _media_name(url) or filenames.from_url(url) or "download"
         db_id = self.db.add_download(
@@ -260,6 +273,11 @@ class Controller(QObject):
             queue_id=queue_id,
             name_locked=chosen is not None,
         )
+        if expected is not None:
+            self.db.set_checksum(db_id, expected.algorithm, expected.digest)
+        item.mirrors = clean_mirrors(mirrors or [], url)
+        if item.mirrors:
+            self.db.set_mirrors(db_id, item.mirrors)
         self._items[db_id] = item
         self.itemAdded.emit(item)
         if start_now:
@@ -267,6 +285,15 @@ class Controller(QObject):
         elif queue_id is not None and queue_id in self._running_queues:
             self.pump_queues()
         return item
+
+    def folder_for(self, url: str, filename: str | None = None) -> Path:
+        """The download folder - or the one a site rule picks for `url`."""
+        base = self.settings.download_dir
+        profile = match_profile(url, self.profiles())
+        if profile is None or not (profile.folder or "").strip():
+            return base
+        name = filename or _media_name(url) or filenames.from_url(url) or ""
+        return render_folder(profile.folder, url, base=base, category=category_for(name))
 
     def start_item(self, db_id: int) -> None:
         item = self._items.get(db_id)
@@ -313,6 +340,120 @@ class Controller(QObject):
         if delete_file:
             self._delete_files(item)
         self.itemRemoved.emit(db_id)
+
+    # -------------------------------------------------------------- checksums
+
+    def expected_checksum(self, db_id: int) -> Expected | None:
+        row = self.db.get_checksum(db_id)
+        if row is None:
+            return None
+        return Expected(row["algorithm"], row["expected"], row["source"])
+
+    def record_checksum(self, db_id: int, verdict: Verdict) -> None:
+        """Keep what a finished file hashed to; a mismatch is an error.
+
+        The download stays "completed" - every byte the server sent is on
+        disk - but the error says the bytes are not the ones published, so
+        it shows in the list and nothing goes on to unpack or run it.
+        """
+        expected = verdict.expected
+        if self.db.get_checksum(db_id) is None or expected.source != "entered":
+            self.db.set_checksum(db_id, expected.algorithm, expected.digest, expected.source)
+        self.db.record_checksum(db_id, verdict.actual, verdict.ok)
+        item = self._items.get(db_id)
+        if item is None:
+            return
+        if not verdict.ok:
+            item.error = (
+                f"{expected.algorithm.upper()} mismatch: expected {expected.digest}, "
+                f"got {verdict.actual}"
+            )
+            self._persist(item, state=item.state.value)
+        self.itemChanged.emit(item)
+
+    def request_for(self, db_id: int) -> DownloadRequest | None:
+        """The request this download would be made with: proxy, agent, TLS."""
+        item = self._items.get(db_id)
+        return self._build_request(item) if item is not None else None
+
+    def can_refresh(self, db_id: int) -> bool:
+        """Can this download be pointed at a new address and carry on?
+
+        Plain files only: a finished one has nothing left to fetch, and a
+        stream or a yt-dlp page re-reads its own addresses every time.
+        """
+        item = self._items.get(db_id)
+        return (
+            item is not None
+            and item.state is not TaskState.COMPLETED
+            and not item.is_media
+        )
+
+    def refresh_address(
+        self,
+        db_id: int,
+        url: str,
+        *,
+        referer: str | None = None,
+        cookie: str | None = None,
+        user_agent: str | None = None,
+        start: bool = True,
+    ) -> bool:
+        """IDM's "Refresh download address": same file, new link.
+
+        Signed and expiring links (file hosts, cloud drives, CDNs) stop
+        working after a while, and resuming then gets a 403 or 410. The bytes
+        on disk are still good; only the address is stale. The new address
+        replaces the old one along with its session, and the resume metadata
+        is told so - the part file is recognised as this download's, and the
+        server's size and ETag still decide whether its bytes are reused.
+        """
+        url = (url or "").strip()
+        if not url.lower().startswith(("http://", "https://")):
+            raise ValueError("only http(s) addresses can be used")
+        if not self.can_refresh(db_id):
+            return False
+        item = self._items[db_id]
+        was_live = item.engine_id is not None and item.is_live
+
+        item.url = url
+        item.cookie = cookie
+        item.referer = referer
+        item.user_agent = user_agent
+        item.error = None
+        self.db.set_address(db_id, url, cookie=cookie, referer=referer, user_agent=user_agent)
+        self._adopt_part_file(item)
+        log.info("download %d now points at %s", db_id, url)
+
+        if was_live:
+            # The running task still holds the old address; the new one is
+            # used from the next start, as soon as this pause has landed.
+            self._restart_when_paused.add(db_id)
+            self.pause_item(db_id, manual=False)
+        elif start:
+            self.start_item(db_id)
+        else:
+            self.itemChanged.emit(item)
+        return True
+
+    def _adopt_part_file(self, item: DownloadItem) -> None:
+        """Tell the resume metadata that the new address is this download's.
+
+        Without it, a server that answers the new link with a different ETag
+        makes the part file look like another download's, and the task would
+        start over under a new name beside it.
+        """
+        for base in {Path(item.save_path),
+                     target_dir(Path(item.save_path), item.filename, item.use_categories)}:
+            meta_path = meta_path_for(base / (item.filename + PART_SUFFIX))
+            meta = ResumeMeta.load(meta_path)
+            if meta is None:
+                continue
+            meta.url = item.url
+            try:
+                meta.save(meta_path)
+            except OSError as exc:  # pragma: no cover - disk level failure
+                log.warning("could not update %s: %s", meta_path, exc)
 
     def redownload(self, db_id: int) -> None:
         item = self._items.get(db_id)
@@ -444,6 +585,9 @@ class Controller(QObject):
                 cookie=row["cookie"],
                 proxy=row["proxy"],
                 note=row["note"] or "",
+                username=row["username"] or None,
+                password=unprotect(row["password"]) or None,
+                folder=row["folder"] or None,
             )
             for row in self.db.list_profiles()
         ]
@@ -458,6 +602,7 @@ class Controller(QObject):
             "referer": item.referer,
             "cookie": item.cookie,
             "proxy": item.proxy,
+            "auth": None,
         })
         chosen_proxy = proxy.resolve(
             tuned["proxy"] or self.settings.get("proxy"),
@@ -480,12 +625,19 @@ class Controller(QObject):
             referer=tuned["referer"],
             user_agent=tuned["user_agent"],
             proxy=chosen_proxy.url,
+            auth=tuned.get("auth"),
             verify_tls=bool(self.settings.get("verify_tls")),
             # The pipeline is derived from the URL, so a restored row picks
             # the right one again without another column in the database.
             max_height=item.max_height or self.settings.video_quality,
             audio_only=item.audio_only,
             ffmpeg_path=self.settings.ffmpeg_path,
+            mirrors=list(item.mirrors),
+            subtitle_langs=[
+                lang.strip() for lang in str(self.settings.get("subtitle_langs") or "").split(",")
+                if lang.strip()
+            ],
+            embed_thumbnail=bool(self.settings.get("embed_thumbnail")),
         )
 
     def _delete_files(self, item: DownloadItem) -> None:
@@ -537,6 +689,14 @@ class Controller(QObject):
         self.itemChanged.emit(item)
         if snap.state.is_final and item.queue_id is not None:
             self.pump_queues()
+        # Paused as asked - or stopped some other way meanwhile: either way
+        # the task holding the old address is gone, and the new one starts.
+        if db_id in self._restart_when_paused and (
+            snap.state is TaskState.PAUSED or snap.state.is_final
+        ):
+            self._restart_when_paused.discard(db_id)
+            if snap.state is not TaskState.COMPLETED:  # finished meanwhile
+                self.start_item(db_id)
 
     def _sync_db(self, item: DownloadItem, force: bool = False) -> None:
         now = time.time()
@@ -556,6 +716,18 @@ class Controller(QObject):
             )
         except Exception:  # pragma: no cover - a DB hiccup must not kill the UI
             log.exception("could not persist download %d", item.db_id)
+
+
+def clean_mirrors(urls: list[str], main: str) -> list[str]:
+    """http(s) addresses, each once, none of them the main one."""
+    seen = {main.strip()}
+    kept = []
+    for url in urls:
+        url = url.strip()
+        if url and url.lower().startswith(("http://", "https://")) and url not in seen:
+            seen.add(url)
+            kept.append(url)
+    return kept
 
 
 #: shared by every download; fetches off the GUI thread and caches the answer

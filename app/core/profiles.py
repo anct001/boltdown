@@ -11,7 +11,10 @@ overlapping patterns wins - is testable without a database or a GUI.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path, PureWindowsPath
 from urllib.parse import urlsplit
 
 
@@ -34,6 +37,11 @@ class SiteProfile:
     cookie: str | None = None
     proxy: str | None = None
     note: str = ""
+    username: str | None = None
+    #: in the clear here; the database only ever holds it protected
+    password: str | None = None
+    #: where this site's downloads go: "{host}/{year}-{month}", or absolute
+    folder: str | None = None
 
     # ---------------------------------------------------------------- matching
 
@@ -78,6 +86,7 @@ class SiteProfile:
             "referer": self.referer,
             "cookie": self.cookie,
             "proxy": self.proxy,
+            "auth": (self.username, self.password or "") if self.username else None,
         }
         return {k: v for k, v in values.items() if v not in (None, "")}
 
@@ -89,6 +98,49 @@ def match(url: str, profiles: list[SiteProfile]) -> SiteProfile | None:
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.specificity)
+
+
+#: what a folder template may say
+FOLDER_FIELDS = ("host", "date", "year", "month", "day", "category")
+_FIELD = re.compile(r"\{(\w+)\}")
+_UNSAFE = re.compile(r'[<>:"|?*\x00-\x1f]')
+
+
+def render_folder(
+    template: str,
+    url: str,
+    *,
+    base: Path,
+    category: str = "",
+    when: datetime | None = None,
+) -> Path:
+    """Where a download from `url` goes under this template.
+
+    Relative templates sit under `base` (the download folder); an absolute
+    one ("D:\\Work\\{host}") is used as it is. Every piece is made safe for
+    a Windows path, and ".." is never let through - a rule decides which
+    folder, not how far up the tree.
+    """
+    when = when or datetime.now()
+    values = {
+        "host": host_of(url) or "unknown",
+        "date": when.strftime("%Y-%m-%d"),
+        "year": when.strftime("%Y"),
+        "month": when.strftime("%m"),
+        "day": when.strftime("%d"),
+        "category": category or "",
+    }
+    rendered = _FIELD.sub(lambda m: values.get(m.group(1).lower(), m.group(0)), template.strip())
+    windows = PureWindowsPath(rendered)
+    absolute = windows.is_absolute() or Path(rendered).is_absolute()
+    anchor = windows.anchor if windows.is_absolute() else ("/" if absolute else "")
+    pieces = []
+    for part in re.split(r"[\\/]+", rendered[len(anchor):] if anchor else rendered):
+        part = _UNSAFE.sub("_", part).strip().rstrip(". ")
+        if part and part not in (".", ".."):
+            pieces.append(part)
+    root = Path(anchor) if absolute else Path(base)
+    return root.joinpath(*pieces)
 
 
 def apply_to(url: str, profiles: list[SiteProfile], values: dict) -> dict:
