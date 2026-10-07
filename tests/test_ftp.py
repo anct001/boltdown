@@ -230,3 +230,17 @@ def test_which_links_are_downloads(text, ok):
     from app.util.links import is_download_link
 
     assert is_download_link(text) is ok
+
+
+def test_connections_do_not_share_a_file_position(ftp, tmp_path, monkeypatch):
+    """Windows has no pwrite: a write is seek, then write. Connections that
+    shared one descriptor put each other's bytes in the wrong place there -
+    so take that path here too, on every platform."""
+    from app.core import writer
+
+    monkeypatch.setattr(writer, "_HAS_PWRITE", False)
+    data = make_payload(4 * MB, seed=51)
+    url = ftp.add_file("/seek.bin", data)
+    runner, state = run(url, tmp_path, connections=4)
+    assert state is TaskState.COMPLETED, runner.error
+    assert sha256(tmp_path / "seek.bin") == sha256(data)

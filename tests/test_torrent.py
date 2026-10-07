@@ -243,3 +243,18 @@ def test_the_engine_sends_magnets_to_the_torrent_runner(swarm, tmp_path):
     done = [e for e in events if e.type == "completed"][-1].snapshot
     assert done.path == str(tmp_path / "small.bin") and done.size == len(data)
     assert sha256(tmp_path / "small.bin") == sha256(data)
+
+
+def test_finishing_waits_for_libtorrent_not_for_a_timeout(swarm, tmp_path):
+    """Leaving the session waits for the flush and the removal alerts. They
+    are matched by info-hash; matching on `str(info_hash_t)` - the object's
+    address - once made every wait run to its timeout."""
+    data = make_payload(300_000, seed=68)
+    seed = swarm("quick.bin", {"quick.bin": data})
+    started = time.monotonic()
+    runner, state = run(seed.magnet, tmp_path / "out")
+    assert state is TaskState.COMPLETED, runner.error
+    assert time.monotonic() - started < 8
+    assert torrent_mod.hash_key(seed.info.info_hashes()) == torrent_mod.hash_key(
+        lt.parse_magnet_uri(seed.magnet).info_hashes
+    )

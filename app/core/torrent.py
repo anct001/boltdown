@@ -86,7 +86,13 @@ def session():
     with _session_lock:
         if _session is None:
             lt = _lt()
-            _session = lt.session(dict(SETTINGS))
+            settings = dict(SETTINGS)
+            # Removal and storage alerts are what `_leave` waits on.
+            settings.setdefault(
+                "alert_mask",
+                int(lt.alert_category.error | lt.alert_category.status | lt.alert_category.storage),
+            )
+            _session = lt.session(settings)
         return _session
 
 
@@ -246,44 +252,56 @@ class TorrentTaskRunner(TaskRunner):
             self._limit = limit
 
     async def _leave(self, lt, ses, handle, *, delete: bool, finished: bool = False) -> None:
-        """Take the torrent out of the session, saving or removing its traces."""
-        if not delete and not finished:
-            await self._save_resume(lt, ses, handle)
+        """Take the torrent out of the session, saving or removing its traces.
+
+        libtorrent counts a piece as done once it is hashed, while writing it
+        out is still queued on its disk thread; a file read straight after
+        "finished" can come back short of its last pieces (the Windows CI
+        runners caught it). So the disk cache is flushed - asking for resume
+        data with `flush_disk_cache` waits for every queued write - and the
+        torrent has left the session, files closed, before this returns.
+        """
+        if not delete:
+            await self._save_resume(lt, ses, handle, keep=not finished)
         if finished or delete:
             with contextlib.suppress(OSError):
                 if self._resume_path is not None:
                     self._resume_path.unlink()
+        try:
+            wanted = hash_key(handle.info_hashes())
+        except Exception:  # noqa: BLE001 - an invalid handle has nothing to wait for
+            wanted = None
         flags = lt.options_t.delete_files if delete else 0
         with contextlib.suppress(Exception):
             ses.remove_torrent(handle, flags)
         self._handle = None
+        if wanted is not None:
+            done = (
+                ("torrent_deleted_alert", "torrent_delete_failed_alert") if delete
+                else ("torrent_removed_alert",)
+            )
+            await _wait_for(ses, done, wanted, timeout=10.0)
 
-    async def _save_resume(self, lt, ses, handle, timeout: float = 5.0) -> None:
-        if self._resume_path is None:
-            return
+    async def _save_resume(self, lt, ses, handle, *, keep: bool = True, timeout: float = 30.0) -> None:
+        """Flush the disk cache; with `keep`, store the resume data too."""
         try:
+            wanted = hash_key(handle.info_hashes())
             handle.save_resume_data(lt.save_resume_flags_t.flush_disk_cache)
         except Exception as exc:  # noqa: BLE001
             log.warning("could not ask for torrent resume data: %s", exc)
             return
-        wanted = str(handle.info_hashes()) if hasattr(handle, "info_hashes") else None
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            for alert in _alerts(ses):
-                if isinstance(alert, lt.save_resume_data_alert) and (
-                    wanted is None or str(alert.handle.info_hashes()) == wanted
-                ):
-                    try:
-                        self._resume_path.write_bytes(lt.write_resume_data_buf(alert.params))
-                    except OSError as exc:
-                        log.warning("could not save torrent resume data: %s", exc)
-                    return
-                if isinstance(alert, lt.save_resume_data_failed_alert) and (
-                    wanted is None or str(alert.handle.info_hashes()) == wanted
-                ):
-                    log.warning("torrent resume data not saved: %s", alert.message())
-                    return
-            await asyncio.sleep(0.05)
+        entry = await _wait_for(
+            ses, ("save_resume_data_alert", "save_resume_data_failed_alert"), wanted, timeout
+        )
+        if entry is None:
+            log.warning("torrent %s: no resume data within %.0fs", self.filename, timeout)
+        elif entry[0] == "save_resume_data_failed_alert":
+            log.warning("torrent resume data not saved: %s", entry[2])
+        elif keep and self._resume_path is not None:
+            try:
+                self._resume_path.write_bytes(entry[2])
+            except OSError as exc:
+                log.warning("could not save torrent resume data: %s", exc)
 
     # ----------------------------------------------------- TaskRunner parts
 
@@ -304,16 +322,76 @@ class TorrentTaskRunner(TaskRunner):
         return snap
 
 
-#: alerts popped by one torrent that another is waiting for
-_pending: list = []
+#: alerts popped by one torrent that another is waiting for, as plain data:
+#: (kind, info-hash, payload). libtorrent's alert objects die at the next
+#: `pop_alerts`, so none is ever kept - touching one later crashes.
+_pending: list[tuple[str, str | None, Any]] = []
 _pending_lock = threading.Lock()
+#: how many unclaimed alerts to keep; nobody waits on most of them
+_PENDING_LIMIT = 500
+#: the alerts anyone waits for, by libtorrent class name
+WANTED_ALERTS = (
+    "save_resume_data_alert", "save_resume_data_failed_alert",
+    "torrent_removed_alert", "torrent_deleted_alert", "torrent_delete_failed_alert",
+)
 
 
-def _alerts(ses) -> list:
-    """Every alert, shared fairly between the torrents waiting on them."""
+def hash_key(hashes) -> str:
+    """A torrent's identity as text: its v1 and v2 hashes in hex.
+
+    Not `str(info_hash_t)`, which is the Python object's address - two
+    objects for the same torrent would never compare equal.
+    """
+    return f"{hashes.v1}/{hashes.v2}"
+
+
+def _hash_of(alert) -> str | None:
+    hashes = getattr(alert, "info_hashes", None)  # removed / deleted alerts
+    try:
+        return hash_key(hashes if hashes is not None else alert.handle.info_hashes())
+    except Exception:  # noqa: BLE001 - a handle that is already gone
+        return None
+
+
+def _copy(lt, alert) -> tuple[str, str | None, Any] | None:
+    """What a waiting torrent needs from `alert`, copied out of libtorrent."""
+    kind = type(alert).__name__
+    if kind not in WANTED_ALERTS:
+        return None
+    if kind == "save_resume_data_alert":
+        payload: Any = bytes(lt.write_resume_data_buf(alert.params))
+    else:
+        payload = alert.message()
+    return kind, _hash_of(alert), payload
+
+
+def _take(ses, kinds: tuple[str, ...], wanted: str):
+    """The first unclaimed alert of `kinds` for torrent `wanted`, claimed.
+
+    Alerts are session-wide, so whoever pops them keeps the rest for the
+    other torrents; a claimed alert is gone, so an old one (an earlier
+    pause of the same torrent) can never answer a new question.
+    """
+    lt = _lt()
     with _pending_lock:
-        _pending.extend(ses.pop_alerts())
-        alerts = list(_pending)
-        # Keep only what someone may still be waiting for.
-        del _pending[:-200]
-    return alerts
+        for alert in ses.pop_alerts():
+            copied = _copy(lt, alert)
+            if copied is not None:
+                _pending.append(copied)
+        for index, entry in enumerate(_pending):
+            if entry[0] in kinds and entry[1] == wanted:
+                del _pending[index]
+                return entry
+        del _pending[:-_PENDING_LIMIT]
+    return None
+
+
+async def _wait_for(ses, kinds, wanted: str, timeout: float):
+    """(kind, hash, payload) of the alert, or None once `timeout` has passed."""
+    kinds = kinds if isinstance(kinds, tuple) else (kinds,)
+    deadline = time.monotonic() + timeout
+    while True:
+        entry = _take(ses, kinds, wanted)
+        if entry is not None or time.monotonic() >= deadline:
+            return entry
+        await asyncio.sleep(0.05)

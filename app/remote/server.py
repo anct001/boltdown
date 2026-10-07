@@ -31,6 +31,7 @@ import json
 import re
 import secrets
 import socket
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -233,6 +234,10 @@ class _Handler(BaseHTTPRequestHandler):
 class _HttpServer(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 32
+    # SO_REUSEADDR means "rebind after a restart" on Unix, but on Windows it
+    # lets a second program bind a port that is in use - and take over the
+    # connections meant for it. There the port is claimed exclusively.
+    allow_reuse_address = sys.platform != "win32"
 
     def __init__(self, address, api: RemoteApi, token: str, family: int) -> None:
         self.address_family = family
@@ -243,6 +248,9 @@ class _HttpServer(ThreadingHTTPServer):
         self._lock = threading.Lock()
 
     def server_bind(self) -> None:
+        exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if exclusive is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, exclusive, 1)
         if self.address_family == socket.AF_INET6:
             # One socket for IPv4 and IPv6 where the system allows it.
             try:

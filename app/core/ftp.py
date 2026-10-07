@@ -202,14 +202,13 @@ class FtpTaskRunner(TaskRunner):
         self._count_lock = lock
         busy = {"active": 0}
         assert self._target is not None
-        fd = self._target.open_fd()
         workers = max(1, min(self.request.connections, len(queue)))
         # A pool of its own: the shared default one may have fewer threads
         # than this download has connections.
         pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix=f"ftp{self.id}")
         threads = [
             loop.run_in_executor(
-                pool, self._worker, loop, target, queue, lock, busy, stop, fd, n
+                pool, self._worker, loop, target, queue, lock, busy, stop, n
             )
             for n in range(workers)
         ]
@@ -229,7 +228,6 @@ class FtpTaskRunner(TaskRunner):
             waiter.cancel()
             monitor.cancel()
             await asyncio.gather(monitor, waiter, return_exceptions=True)
-            self._target.close_fd(fd)
             self._recount()
             self._save_meta()
         # A segment of unknown size is done once it read to the end, which
@@ -258,10 +256,15 @@ class FtpTaskRunner(TaskRunner):
 
     # --------------------------------------------------------- worker thread
 
-    def _worker(self, loop, target, queue, lock, busy, stop, fd, number) -> None:
+    def _worker(self, loop, target, queue, lock, busy, stop, number) -> None:
         """Take segments until none are left; one login, re-made on errors."""
         ftp: ftplib.FTP | None = None
         failures = 0
+        # A descriptor of its own: on Windows a write is seek-then-write, and
+        # two threads sharing one file position write each other's bytes in
+        # the wrong place (see writer.py).
+        assert self._target is not None
+        fd = self._target.open_fd()
         try:
             while not stop.is_set():
                 with lock:
@@ -317,6 +320,7 @@ class FtpTaskRunner(TaskRunner):
                                 self.id, segment.index, delay, exc)
                     stop.wait(delay)
         finally:
+            self._target.close_fd(fd)
             if ftp is not None:
                 try:
                     ftp.quit()
