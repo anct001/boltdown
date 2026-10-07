@@ -211,6 +211,14 @@ class SettingsDialog(QDialog):
         )
         self.auto_extract = QCheckBox(tr("Unpack archives when they finish"))
         self.auto_extract.setChecked(bool(self.settings.get("auto_extract")))
+        self.auto_checksum = QCheckBox(
+            tr("Check installers and disk images against the site's published checksums")
+        )
+        self.auto_checksum.setToolTip(tr(
+            "After the download, look for SHA256SUMS or a .sha256 file next to "
+            "it and compare. A mismatch is reported and the file is not unpacked."
+        ))
+        self.auto_checksum.setChecked(bool(self.settings.get("auto_checksum")))
         self.scan_defender = QCheckBox(tr("Scan finished files with Defender"))
         self.scan_defender.setChecked(bool(self.settings.get("scan_with_defender")))
         self.scan_defender.setEnabled(sys.platform == "win32")
@@ -222,6 +230,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.categories, 1)
         layout.addWidget(restore)
         layout.addWidget(self.auto_extract)
+        layout.addWidget(self.auto_checksum)
         layout.addWidget(self.scan_defender)
         return page
 
@@ -403,6 +412,7 @@ class SettingsDialog(QDialog):
             "resume_on_start": self.resume_on_start.isChecked(),
             "notify_on_finish": self.notify_on_finish.isChecked(),
             "auto_extract": self.auto_extract.isChecked(),
+            "auto_checksum": self.auto_checksum.isChecked(),
             "scan_with_defender": self.scan_defender.isChecked(),
             "categories": self.categories.toPlainText().strip() or None,
         })

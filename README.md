@@ -431,11 +431,46 @@ nếu mẫu sinh quá 10.000 URL (`app/util/patterns.py`).
 
 ## Lịch sử và kiểm tra checksum
 
+Ô **Tìm kiếm** trên danh sách (`Ctrl+F`, `Esc` để xoá) tìm trong tên file, địa
+chỉ, trang nguồn và nội dung lỗi; gõ có dấu hay không đều được ("bao cao" khớp
+"Báo cáo"), nhiều từ thì phải khớp hết, bên cạnh hiện số kết quả.
+
 Mục đã tải xong được ghi vào bảng `history` ngay lúc xong, nên xoá khỏi danh
 sách vẫn tra lại được: **Tệp → Lịch sử** cho tìm kiếm, copy URL, tải lại hoặc
 xoá. Chuột phải một mục đã xong → **Kiểm tra checksum** để tính SHA-256/MD5/SHA-1
 (chạy trên luồng nền, có thanh tiến độ) rồi dán giá trị trên trang tải về vào để
 so — chấp nhận cả kiểu `<hash>  <tên tệp>` copy thẳng từ file `.sha256`.
+
+### Tự kiểm tra khi tải xong
+
+- **Dán checksum lúc thêm link** — ô **Checksum** trong phần *Nâng cao* của hộp
+  thoại thêm link nhận SHA-256, SHA-1, SHA-512 hoặc MD5 (tự nhận ra theo độ dài),
+  kể cả `sha256:…`, `<hash>  <tên tệp>` hay kiểu BSD `SHA256 (tệp) = …`.
+- **Tự tìm checksum trang web công bố** — với file cài đặt, file nén và ảnh đĩa
+  từ 1 MB trở lên (`.iso`, `.exe`, `.msi`, `.zip`, `.7z`, `.dmg`, `.apk`, …), khi
+  tải xong app thử `<file>.sha256`, `.sha512`, `.sha1`, `.md5` rồi `SHA256SUMS`,
+  `sha256sums.txt`, `SHA512SUMS`, `checksums.txt`, `MD5SUMS` trong cùng thư mục.
+  Phần `?chữ-ký` của link được bỏ đi khi đoán; không gửi cookie; mỗi file listing
+  đọc tối đa 512 KB. Tắt trong **Tuỳ chọn → Danh mục** nếu không muốn.
+- Khớp thì báo xanh. Lệch thì báo đỏ kèm tiếng báo lỗi, lượt tải ghi lỗi
+  `SHA256 mismatch: expected …, got …`, và **file không được giải nén hay quét
+  tiếp** — một file khác với file đã công bố không nên được mở.
+
+## Làm mới địa chỉ tải
+
+Link có chữ ký hoặc có hạn (host file, ổ đĩa đám mây, CDN) hết hạn sau một lúc,
+và tải tiếp lúc đó chỉ nhận về 403/410. Chuột phải lượt tải chưa xong →
+**Làm mới địa chỉ tải…**:
+
+- **Dán link mới**, hoặc
+- **Lấy từ trình duyệt** — app mở lại trang nguồn; bấm lại link tải trên trang
+  đó, extension bắt link và gắn vào *lượt tải cũ* (kèm cookie mới) thay vì tạo
+  lượt mới. Link có kích thước khác hẳn thì được coi là file khác và thêm như
+  bình thường; app chờ tối đa 5 phút.
+
+Phần đã tải được giữ: file `.part` được ghi nhận là của lượt tải này, còn kích
+thước và ETag server trả về cho link mới vẫn quyết định có dùng lại các byte đó
+hay không. Lượt tải đang chạy cũng đổi được: nó tạm dừng, đổi link rồi chạy tiếp.
 
 ## Hộp thả nổi
 

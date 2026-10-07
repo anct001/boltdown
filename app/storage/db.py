@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 from ..util.paths import db_path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS download_headers (
     referer     TEXT,
     user_agent  TEXT,
     proxy       TEXT
+);
+
+-- What a download should hash to, and what it did (v5).
+CREATE TABLE IF NOT EXISTS checksums (
+    download_id INTEGER PRIMARY KEY REFERENCES downloads(id) ON DELETE CASCADE,
+    algorithm   TEXT NOT NULL,
+    expected    TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'entered',
+    actual      TEXT,
+    ok          INTEGER,
+    checked_at  REAL
 );
 
 CREATE TABLE IF NOT EXISTS schedules (
@@ -160,7 +171,7 @@ class Database:
                 self.execute(
                     "UPDATE downloads SET name_locked = 1 WHERE downloaded > 0"
                 )
-        # v4 only adds a table, which CREATE TABLE IF NOT EXISTS already made.
+        # v4 and v5 only add tables, which CREATE TABLE IF NOT EXISTS made.
         self.execute(
             "UPDATE meta SET value = ? WHERE key = 'schema_version'",
             (str(SCHEMA_VERSION),),
@@ -243,6 +254,62 @@ class Database:
             "UPDATE downloads SET size = ?, final_url = ? WHERE id = ?",
             (size, final_url, download_id),
         )
+
+    def set_address(
+        self,
+        download_id: int,
+        url: str,
+        *,
+        cookie: str | None,
+        referer: str | None,
+        user_agent: str | None,
+    ) -> None:
+        """Point a download at a new URL, with the session that goes with it.
+
+        The cookie, referer and user agent are replaced, not merged: they
+        belong to the browser session the new link came from, and the old
+        cookie is usually exactly what expired.
+        """
+        with self._lock:
+            self._conn.execute(
+                "UPDATE downloads SET url = ?, final_url = NULL, error = NULL WHERE id = ?",
+                (url, download_id),
+            )
+            self._conn.execute(
+                """INSERT INTO download_headers (download_id, cookie, referer, user_agent)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(download_id) DO UPDATE SET
+                       cookie = excluded.cookie,
+                       referer = excluded.referer,
+                       user_agent = excluded.user_agent""",
+                (download_id, cookie, referer, user_agent),
+            )
+
+    # ---------------------------------------------------------------- checksums
+
+    def set_checksum(
+        self, download_id: int, algorithm: str, expected: str, source: str = "entered"
+    ) -> None:
+        """What `download_id` should hash to. Forgets any earlier verdict."""
+        self.execute(
+            """INSERT INTO checksums (download_id, algorithm, expected, source)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(download_id) DO UPDATE SET
+                   algorithm = excluded.algorithm, expected = excluded.expected,
+                   source = excluded.source, actual = NULL, ok = NULL,
+                   checked_at = NULL""",
+            (download_id, algorithm, expected, source),
+        )
+
+    def record_checksum(self, download_id: int, actual: str, ok: bool) -> None:
+        self.execute(
+            "UPDATE checksums SET actual = ?, ok = ?, checked_at = ? WHERE download_id = ?",
+            (actual, int(ok), time.time(), download_id),
+        )
+
+    def get_checksum(self, download_id: int) -> sqlite3.Row | None:
+        rows = self.query("SELECT * FROM checksums WHERE download_id = ?", (download_id,))
+        return rows[0] if rows else None
 
     def get_download(self, download_id: int) -> sqlite3.Row | None:
         rows = self.query("SELECT * FROM downloads WHERE id = ?", (download_id,))

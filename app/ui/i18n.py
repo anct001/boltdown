@@ -123,6 +123,35 @@ _VI: dict[str, str] = {
     "Captured from the browser": "Bắt được từ trình duyệt",
     "Added to the list, waiting: %s": "Đã thêm vào danh sách, đang chờ: %s",
     "Added %d downloads": "Đã thêm %d lượt tải",
+    "Refresh download address": "Làm mới địa chỉ tải",
+    "Refresh download address...": "Làm mới địa chỉ tải...",
+    "The link of this download no longer works - it expired, or the site wants a new one. Give it a new address for the same file; what is already downloaded is kept.":
+        "Link của lượt tải này không còn dùng được - đã hết hạn, hoặc trang web cần link mới. Hãy nhập địa chỉ mới cho cùng file đó; phần đã tải vẫn được giữ.",
+    "Downloaded:": "Đã tải:",
+    "Current address:": "Địa chỉ hiện tại:",
+    "New address:": "Địa chỉ mới:",
+    "Get it from the browser": "Lấy từ trình duyệt",
+    "Opens the page the file came from; click its download link again and the new address is used for this download.":
+        "Mở trang chứa file; bấm lại link tải ở đó và địa chỉ mới sẽ được dùng cho lượt tải này.",
+    "Click the download link again in the browser; its new address will be used for %s":
+        "Hãy bấm lại link tải trong trình duyệt; địa chỉ mới sẽ được dùng cho %s",
+    "That link is a different file (%s); it was added as a new download":
+        "Link đó là một file khác (%s); đã được thêm thành lượt tải mới",
+    "New address received; continuing %s": "Đã nhận địa chỉ mới; tải tiếp %s",
+    "Name, address, source page or error - accents optional, every word must match. Ctrl+F to search, Esc to clear.":
+        "Tên, địa chỉ, trang nguồn hoặc lỗi - gõ có dấu hay không đều được, mọi từ đều phải khớp. Ctrl+F để tìm, Esc để xoá.",
+    "%d of %d": "%d / %d",
+    "SHA-256, SHA-1 or MD5 published by the site (optional)": "SHA-256, SHA-1 hoặc MD5 do trang web công bố (không bắt buộc)",
+    "Checksum:": "Checksum:",
+    "That is not a SHA-256, SHA-1, SHA-512 or MD5 checksum.": "Đó không phải mã checksum SHA-256, SHA-1, SHA-512 hay MD5.",
+    "Checksum verified": "Checksum khớp",
+    "Checksum mismatch": "Checksum KHÔNG khớp",
+    "%s is not the file the site published - it may be corrupted or tampered with.":
+        "%s không phải file trang web đã công bố - có thể bị hỏng hoặc bị sửa đổi.",
+    "Check installers and disk images against the site's published checksums":
+        "Đối chiếu file cài đặt và ảnh đĩa với checksum trang web công bố",
+    "After the download, look for SHA256SUMS or a .sha256 file next to it and compare. A mismatch is reported and the file is not unpacked.":
+        "Tải xong sẽ tìm SHA256SUMS hoặc file .sha256 cạnh link để so sánh. Nếu lệch sẽ báo lỗi và không giải nén file.",
     "Extension ID:": "ID tiện ích:",
     "32 letters from chrome://extensions": "32 chữ cái lấy ở chrome://extensions",
     "Load extension/ as an unpacked extension, then paste its ID here.":

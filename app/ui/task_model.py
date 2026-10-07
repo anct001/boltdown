@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import unicodedata
 from datetime import datetime
 
 from PySide6.QtCore import (
@@ -162,6 +163,33 @@ class DownloadTableModel(QAbstractTableModel):
         return None
 
 
+def fold(text: str) -> str:
+    """Lower case without accents: "Báo cáo Q4" -> "bao cao q4".
+
+    Vietnamese file names are typed both ways, and a search that only finds
+    "báo cáo" when the user types every mark is one people stop using. "đ"
+    is a letter of its own, not a d with a mark, so it is mapped by hand.
+    """
+    decomposed = unicodedata.normalize("NFD", text.casefold())
+    bare = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return bare.replace("đ", "d")
+
+
+def search_words(text: str) -> list[str]:
+    return [word for word in fold(text).split() if word]
+
+
+def matches_search(item: DownloadItem, words: list[str]) -> bool:
+    """Every word must appear somewhere: name, address, source page, error."""
+    if not words:
+        return True
+    haystack = fold(" ".join(
+        part for part in (item.filename, item.url, item.referer or "", item.error or "")
+        if part
+    ))
+    return all(word in haystack for word in words)
+
+
 class DownloadFilterProxy(QSortFilterProxyModel):
     """Left-hand tree selection: all / unfinished / finished / category / queue."""
 
@@ -170,7 +198,7 @@ class DownloadFilterProxy(QSortFilterProxyModel):
         self.setSortRole(SORT_ROLE)
         self._kind = "all"
         self._value = ""
-        self._text = ""
+        self._words: list[str] = []
 
     def set_filter(self, kind: str, value: str = "") -> None:
         self._kind = kind
@@ -178,15 +206,19 @@ class DownloadFilterProxy(QSortFilterProxyModel):
         self.invalidateFilter()
 
     def set_search(self, text: str) -> None:
-        self._text = text.strip().lower()
+        self._words = search_words(text)
         self.invalidateFilter()
+
+    @property
+    def searching(self) -> bool:
+        return bool(self._words)
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
         model = self.sourceModel()
         item = model.item_at(source_row)
         if item is None:
             return False
-        if self._text and self._text not in item.filename.lower() and self._text not in item.url.lower():
+        if not matches_search(item, self._words):
             return False
         if self._kind == "all":
             return True

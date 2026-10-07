@@ -27,6 +27,7 @@ from ..core.categories import category_for
 from ..media.detect import classify, suggested_name
 from ..storage.settings import Settings
 from ..util import filenames
+from ..util.checksums import parse_expected
 from ..util.fmt import parse_size
 from .i18n import tr
 
@@ -102,6 +103,9 @@ class AddUrlDialog(QDialog):
         advanced_form.addRow(tr("User-Agent:"), self.user_agent)
         advanced_form.addRow(tr("Proxy:"), self.proxy)
         advanced_form.addRow(tr("Speed limit:"), self.limit)
+        self.checksum = QLineEdit()
+        self.checksum.setPlaceholderText(tr("SHA-256, SHA-1 or MD5 published by the site (optional)"))
+        advanced_form.addRow(tr("Checksum:"), self.checksum)
 
         self.advanced = QGroupBox(tr("Advanced"))
         self.advanced.setCheckable(True)
@@ -225,6 +229,12 @@ class AddUrlDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, tr("Add a download"), tr("Speed limit:"))
             return False
+        if self.checksum.text().strip() and parse_expected(self.checksum.text()) is None:
+            QMessageBox.warning(
+                self, tr("Add a download"),
+                tr("That is not a SHA-256, SHA-1, SHA-512 or MD5 checksum."),
+            )
+            return False
         return True
 
     # ---------------------------------------------------------------- result
@@ -247,6 +257,7 @@ class AddUrlDialog(QDialog):
             "start_now": self.start_now,
             "max_height": self.quality.currentData(),
             "audio_only": self.audio_only.isChecked(),
+            "checksum": self.checksum.text().strip() or None,
         }
 
 

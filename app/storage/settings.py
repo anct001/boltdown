@@ -39,6 +39,7 @@ DEFAULTS: dict[str, Any] = {
     "resume_on_start": False,      # continue unfinished downloads at launch
     "notify_on_finish": True,      # tray/toast when a file lands
     "auto_extract": False,         # unpack archives once they finish
+    "auto_checksum": True,         # look up SHA256SUMS & co. next to installers/images
     "scan_with_defender": False,   # hand finished files to MpCmdRun.exe
     "bandwidth_schedule": None,    # {"start": "02:00", "stop": "06:00", "limit": null}
     "update_check": True,          # ask GitHub about newer releases
