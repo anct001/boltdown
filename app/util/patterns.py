@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from itertools import product
 
+from .links import is_download_link
+
 #: `[001-120]` or `[a-e]`, the two forms IDM's batch dialog understands
 RANGE = re.compile(r"\[(?:(\d+)-(\d+)|([a-zA-Z])-([a-zA-Z]))\]")
 #: a wrong pattern must not lock the UI up building a list nobody wants
@@ -92,7 +94,7 @@ def parse(text: str) -> list[str]:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        if not line.lower().startswith(("http://", "https://")):
+        if not is_download_link(line):
             continue
         for url in expand(line):
             if url not in seen:

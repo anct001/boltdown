@@ -13,6 +13,7 @@ from PySide6.QtGui import QAction, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QMenu, QWidget
 
 from ..storage.settings import Settings
+from ..util.links import is_download_link
 from . import theme
 from .i18n import tr
 
@@ -25,7 +26,7 @@ def urls_in(mime) -> list[str]:
     urls = [u.toString() for u in mime.urls()] if mime.hasUrls() else []
     if not urls and mime.hasText():
         urls = [line.strip() for line in mime.text().splitlines() if line.strip()]
-    return [u for u in urls if u.startswith(("http://", "https://"))]
+    return [u for u in urls if is_download_link(u)]
 
 
 class DropBox(QWidget):

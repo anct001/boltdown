@@ -124,6 +124,9 @@ class DownloadRequest:
     #: whether to put the thumbnail in as cover art
     subtitle_langs: list[str] = field(default_factory=list)
     embed_thumbnail: bool = False
+    #: fetch over BitTorrent; None decides from the URL (magnet, *.torrent),
+    #: False saves a .torrent file as the plain file it is
+    torrent: bool | None = None
 
     def __post_init__(self) -> None:
         if self.media_kind is None:
@@ -270,27 +273,8 @@ class TaskRunner:
         self._pause_requested = False
         self._cancel_requested = False
         try:
-            spec = self.request.to_spec()
             self._set_state(TaskState.PROBING)
-            async with build_client(
-                spec, max_connections=self.request.connections + 4
-            ) as client:
-                result = await self._probe_with_retry(client, spec)
-                self._probe = result
-                self._primed, result.response = result.response, None
-                try:
-                    self._apply_probe(result)
-                    self._prepare_files(result)
-                    if self._all_complete():
-                        log.info("task %d already complete on disk", self.id)
-                    else:
-                        self._sources = [result.final_url] + await self._usable_mirrors(
-                            client, result
-                        )
-                        self._set_state(TaskState.DOWNLOADING)
-                        await self._download(client, result)
-                finally:
-                    await self._discard_primed()
+            await self._fetch()
             if self._cancel_requested:
                 raise CancelledByUser("cancelled")
             self._finalize()
@@ -318,6 +302,33 @@ class TaskRunner:
             self._close_target()
             release_path(self.part_path)
         return self.state
+
+    async def _fetch(self) -> None:
+        """Probe, claim the file, download what is missing - over HTTP.
+
+        Everything around it (pause, cancel, errors, the finished file) is
+        protocol-free; `FtpTaskRunner` replaces just this.
+        """
+        spec = self.request.to_spec()
+        async with build_client(
+            spec, max_connections=self.request.connections + 4
+        ) as client:
+            result = await self._probe_with_retry(client, spec)
+            self._probe = result
+            self._primed, result.response = result.response, None
+            try:
+                self._apply_probe(result)
+                self._prepare_files(result)
+                if self._all_complete():
+                    log.info("task %d already complete on disk", self.id)
+                else:
+                    self._sources = [result.final_url] + await self._usable_mirrors(
+                        client, result
+                    )
+                    self._set_state(TaskState.DOWNLOADING)
+                    await self._download(client, result)
+            finally:
+                await self._discard_primed()
 
     # ---------------------------------------------------------------- internals
 

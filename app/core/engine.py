@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 from ..util.log import get_logger
-from .ratelimit import TokenBucket
+from . import adaptive
+from .ratelimit import ChainedBucket, TokenBucket
 from .task import DownloadRequest, TaskRunner, TaskSnapshot, TaskState
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -83,6 +84,14 @@ class Engine:
         self._max_concurrent = max(1, int(max_concurrent))
         self._on_event = on_event
         self._global_bucket = TokenBucket(speed_limit)
+        #: what the adaptive throttle allows; unlimited while it is off
+        self._adaptive_bucket = TokenBucket(None)
+        self._throttle: adaptive.Throttle | None = None
+        self._throttle_host = adaptive.parse_host(adaptive.DEFAULT_HOST)
+        self._throttle_task: asyncio.Task | None = None
+        #: tests swap in a fake network
+        self._measure = adaptive.measure_rtt
+        self._adapt_interval = 1.0
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -136,6 +145,8 @@ class Engine:
         # The first download of the session should start as fast as the
         # hundredth; see `warm_up`. Scheduled, so `start` does not wait on it.
         loop.create_task(self._warm_up(), name="engine-warm-up")
+        if self._throttle is not None:
+            self._apply_adaptive(True, self._throttle.target)
         try:
             loop.run_forever()
         finally:
@@ -246,6 +257,69 @@ class Engine:
         """Detach before tearing down a GUI: the loop thread may still emit."""
         self._on_event = listener
 
+    @property
+    def adaptive_limit(self) -> float | None:
+        """The limit the throttle holds the downloads to now, if any."""
+        return self._adaptive_bucket.rate
+
+    def set_adaptive(
+        self, enabled: bool, *, target_ms: float | None = None, host: str | None = None
+    ) -> None:
+        """Switch the yield-to-other-traffic throttle on or off; any thread."""
+        target = (target_ms or adaptive.DEFAULT_TARGET * 1000) / 1000
+        self._throttle_host = adaptive.parse_host(host or adaptive.DEFAULT_HOST)
+        if self._loop is None:
+            self._throttle = adaptive.Throttle(target) if enabled else None
+            return
+        self._loop.call_soon_threadsafe(self._apply_adaptive, enabled, target)
+
+    def _apply_adaptive(self, enabled: bool, target: float) -> None:
+        if enabled:
+            if self._throttle is None:
+                self._throttle = adaptive.Throttle(target)
+            self._throttle.target = target
+            if self._throttle_task is None or self._throttle_task.done():
+                # The engine's loop, not the running one: at start-up this is
+                # called before the loop runs.
+                assert self._loop is not None
+                self._throttle_task = self._loop.create_task(
+                    self._adapt(), name="adaptive-throttle"
+                )
+        else:
+            self._throttle = None
+            if self._throttle_task is not None:
+                self._throttle_task.cancel()
+                self._throttle_task = None
+            self._adaptive_bucket.set_rate(None)
+
+    async def _adapt(self) -> None:
+        """Measure, decide, apply - every second while something downloads."""
+        while self._throttle is not None:
+            interval = self._adapt_interval
+            if self._download_speed() <= 0 and self._throttle.baseline is not None:
+                # Idle, the round trip is still sampled now and then, so the
+                # quiet baseline is known before the next download fills the
+                # line - and a download that starts is watched at once.
+                self._throttle.update(None, 0.0)
+                self._adaptive_bucket.set_rate(None)
+                for _ in range(10):
+                    await asyncio.sleep(interval)
+                    if self._download_speed() > 0:
+                        break
+            rtt = await self._measure(*self._throttle_host)
+            throttle = self._throttle
+            if throttle is None:
+                break
+            limit = throttle.update(rtt, self._download_speed())
+            self._adaptive_bucket.set_rate(int(limit) if limit else None)
+            await asyncio.sleep(interval)
+
+    def _download_speed(self) -> float:
+        return sum(
+            r.snapshot().speed for r in list(self._runners.values())
+            if self._states.get(r.id) is TaskState.DOWNLOADING
+        )
+
     def set_speed_limit(self, limit: int | None) -> None:
         if self._loop is not None:
             self._loop.call_soon_threadsafe(self._global_bucket.set_rate, limit)
@@ -267,7 +341,17 @@ class Engine:
 
     def _make_runner(self, task_id: int, request: DownloadRequest):
         """Plain files go to `TaskRunner`; playlists and pages to the media one."""
-        if request.is_media:
+        from .ftp import FtpTaskRunner, is_ftp
+        from .torrent import TorrentTaskRunner, wants_torrent
+
+        torrent = request.torrent
+        if torrent is None:
+            torrent = wants_torrent(request.url)
+        if torrent:
+            factory = TorrentTaskRunner
+        elif is_ftp(request.url):
+            factory = FtpTaskRunner
+        elif request.is_media:
             from ..media.runner import MediaTaskRunner
 
             factory = MediaTaskRunner
@@ -276,7 +360,7 @@ class Engine:
         return factory(
             task_id,
             request,
-            global_bucket=self._global_bucket,
+            global_bucket=ChainedBucket(self._global_bucket, self._adaptive_bucket),
             on_event=self._on_task_event,
         )
 

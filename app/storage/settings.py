@@ -13,6 +13,13 @@ DEFAULTS: dict[str, Any] = {
     "connections": 8,
     "max_concurrent": 3,
     "speed_limit": None,           # bytes/second, None = unlimited
+    "adaptive_throttle": False,    # slow down while other traffic needs the line
+    "adaptive_target_ms": 75,      # round trip above the quiet one that means "busy"
+    "adaptive_host": "",
+    "open_torrents": True,         # *.torrent links download the torrent, not the file
+    "remote_enabled": False,       # the web page for phones on the same network
+    "remote_port": 9614,
+    "remote_token": "",            # made on first use; see remote/server.py           # where the round trip is measured; "" = 1.1.1.1:443
     "use_categories": True,
     "proxy": None,
     "user_agent": None,

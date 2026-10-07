@@ -373,9 +373,38 @@
     .then((reply) => {
       const items = (reply && reply.items) || [];
       allowed = reply.showButton !== false;
+      magnets = reply.captureMagnets === true;
       if (items.length) ensureButton(items.length);
     })
     .catch(() => {});
+
+  // Magnet links: a click the user made goes to Boltdown. The default action
+  // is stopped before the answer is known (it cannot wait), so when the app
+  // does not take the link the browser is asked to open it after all.
+  let magnets = false;
+  let passThrough = null;
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!magnets || !event.isTrusted || event.defaultPrevented) return;
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!link || !/^magnet:\?/i.test(link.href) || link.href === passThrough) return;
+      event.preventDefault();
+      const url = link.href;
+      chrome.runtime
+        .sendMessage({ type: "send-magnet", url })
+        .then((reply) => {
+          if (!reply || !reply.handled || !reply.ok) open(url);
+        })
+        .catch(() => open(url));
+    },
+    true
+  );
+  function open(url) {
+    passThrough = url;
+    window.location.assign(url);
+  }
 
   // pagehide rather than beforeunload: a beforeunload listener keeps the page
   // out of the back/forward cache in some browsers.

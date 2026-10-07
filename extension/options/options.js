@@ -1,6 +1,6 @@
 /* Options: everything the popup has, plus the lists that need room. */
 
-const TOGGLES = ["enabled", "captureMedia", "showButton", "captureIncognito"];
+const TOGGLES = ["enabled", "captureMedia", "captureMagnets", "showButton", "captureIncognito"];
 const MB = 1024 * 1024;
 const savedEl = document.getElementById("saved");
 let savedTimer = null;

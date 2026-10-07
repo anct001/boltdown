@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core import categories
+from ..core import categories, torrent
 from ..media.ffmpeg import find_ffmpeg
 from ..media.ytdlp import version as ytdlp_version
 from ..storage.settings import Settings
@@ -184,11 +184,36 @@ class SettingsDialog(QDialog):
         self.user_agent.setPlaceholderText(tr("auto"))
         self.verify_tls = QCheckBox(tr("Verify TLS certificates"))
         self.verify_tls.setChecked(bool(self.settings.get("verify_tls")))
+        self.adaptive = QCheckBox(tr("Slow down while other programs need the network"))
+        self.adaptive.setToolTip(tr(
+            "Watches the round trip to the internet; when downloads make it "
+            "climb, they are slowed until calls, games and pages are quick again."
+        ))
+        self.adaptive.setChecked(bool(self.settings.get("adaptive_throttle")))
+        self.adaptive_target = QSpinBox()
+        self.adaptive_target.setRange(20, 500)
+        self.adaptive_target.setSuffix(" ms")
+        self.adaptive_target.setValue(int(self.settings.get("adaptive_target_ms") or 75))
+        self.adaptive_target.setToolTip(tr("Extra delay allowed before downloads give way"))
+        self.adaptive_target.setEnabled(self.adaptive.isChecked())
+        self.adaptive.toggled.connect(self.adaptive_target.setEnabled)
+        self.open_torrents = QCheckBox(tr("Download .torrent links as torrents"))
+        self.open_torrents.setChecked(bool(self.settings.get("open_torrents")))
+        self.torrent_status = QLabel(
+            tr("Torrents: ready (libtorrent installed)") if torrent.available()
+            else tr("Torrents need libtorrent: pip install libtorrent")
+        )
+        self.torrent_status.setWordWrap(True)
+        self.torrent_status.setEnabled(False)
 
         form = QFormLayout(page)
         form.addRow(tr("Default connections:"), self.connections)
         form.addRow(tr("Simultaneous downloads:"), self.concurrent)
         form.addRow(tr("Global speed limit:"), self.limit)
+        form.addRow("", self.adaptive)
+        form.addRow(tr("Allowed extra delay:"), self.adaptive_target)
+        form.addRow("", self.open_torrents)
+        form.addRow("", self.torrent_status)
         form.addRow(tr("Proxy:"), self.proxy)
         form.addRow("", self.use_system_proxy)
         form.addRow("", self.proxy_status)
@@ -433,7 +458,48 @@ class SettingsDialog(QDialog):
         for box in self.phone_events.values():
             form.addRow("", box)
         form.addRow(test, self.phone_status)
+
+        # Remote control: the other direction, the phone telling the app.
+        heading = QLabel(f"<b>{tr('Remote control')}</b>")
+        form.addRow(heading)
+        self.remote_enabled = QCheckBox(tr("Control downloads from a phone on this network"))
+        self.remote_enabled.setChecked(bool(self.settings.get("remote_enabled")))
+        self.remote_port = QSpinBox()
+        self.remote_port.setRange(1024, 65535)
+        self.remote_port.setValue(int(self.settings.get("remote_port") or 9614))
+        self._new_remote_token = False
+        new_token = QPushButton(tr("New link"))
+        new_token.setToolTip(tr("Phones with the old link lose access"))
+        new_token.clicked.connect(self._renew_remote_token)
+        self.remote_links = QLabel()
+        self.remote_links.setWordWrap(True)
+        self.remote_links.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.remote_links.setOpenExternalLinks(True)
+        self._show_remote_links()
+        form.addRow("", self.remote_enabled)
+        form.addRow(tr("Port:"), self.remote_port)
+        form.addRow(new_token, self.remote_links)
         return page
+
+    def _remote(self):
+        return getattr(self.parent(), "remote", None)
+
+    def _show_remote_links(self) -> None:
+        remote = self._remote()
+        links = remote.links() if remote is not None and not self._new_remote_token else []
+        if links:
+            shown = "<br>".join(f'<a href="{link}">{link}</a>' for link in links)
+            self.remote_links.setText(
+                tr("Open on the phone (same Wi-Fi):") + "<br>" + shown
+            )
+        elif remote is not None and remote.error:
+            self.remote_links.setText(f"{tr('Failed')}: {remote.error}")
+        else:
+            self.remote_links.setText(tr("The link appears here once it is switched on."))
+
+    def _renew_remote_token(self) -> None:
+        self._new_remote_token = True
+        self._show_remote_links()
 
     def _phone_target(self) -> "phone.Target":
         return phone.Target(
@@ -471,6 +537,12 @@ class SettingsDialog(QDialog):
             "connections": self.connections.value(),
             "max_concurrent": self.concurrent.value(),
             "speed_limit": limit,
+            "adaptive_throttle": self.adaptive.isChecked(),
+            "open_torrents": self.open_torrents.isChecked(),
+            "remote_enabled": self.remote_enabled.isChecked(),
+            "remote_port": self.remote_port.value(),
+            **({"remote_token": ""} if self._new_remote_token else {}),
+            "adaptive_target_ms": self.adaptive_target.value(),
             "proxy": self.proxy.text().strip() or None,
             "use_system_proxy": self.use_system_proxy.isChecked(),
             "user_agent": self.user_agent.text().strip() or None,

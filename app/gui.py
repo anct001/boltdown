@@ -19,6 +19,7 @@ from .ui.ipc_bridge import IpcBridge
 from .ui.main_window import MainWindow
 from .ui.tray import TrayIcon
 from .util.log import get_logger, setup_logging
+from .util.links import is_download_link
 
 log = get_logger(__name__)
 
@@ -71,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(level=logging.WARNING, console=False)
 
     start_hidden = any(flag in argv for flag in TRAY_FLAGS)
-    urls = [a for a in argv if a.startswith(("http://", "https://"))]
+    urls = [a for a in argv if is_download_link(a)]
     if _forward_to_running_instance(urls):
         log.info("another instance is running; handed over %d URL(s)", len(urls))
         return 0

@@ -43,6 +43,10 @@ Phần tải video cần thêm `ffmpeg` trong PATH (hoặc chỉ đường dẫn
 **Tuỳ chọn → Video**). Thiếu ffmpeg thì app vẫn tải xong, chỉ là để nguyên
 `.ts` và không ghép được video với âm thanh.
 
+Tải torrent cần `libtorrent` (`pip install ".[torrent]"`; bản cài đặt và
+`.[dev]` đã có sẵn). Thiếu nó thì link magnet báo lỗi kèm lệnh cài, mọi thứ
+khác vẫn chạy.
+
 ## Chạy giao diện
 
 ```bash
@@ -534,6 +538,75 @@ checksum) hoặc một hàng đợi chạy xong — tiện khi để máy tải 
 Nút *Gửi thử* kiểm tra ngay. Tin được gửi trên luồng riêng nên mạng chậm không
 làm đứng cửa sổ hay lượt tải; tin gửi qua proxy đã đặt trong app.
 
+## Điều khiển từ điện thoại
+
+Chiều ngược lại: bật **Tuỳ chọn → Điện thoại → Điều khiển từ xa**, app hiện một
+link dạng `http://192.168.1.15:9614/#t=…`. Mở link đó trên điện thoại cùng Wi-Fi
+là thấy danh sách tải (tiến độ, tốc độ, thời gian còn lại), thêm link mới (kể cả
+magnet), tạm dừng, tiếp tục hoặc gỡ khỏi danh sách — trang tự làm mới mỗi 1,5 giây
+và theo giao diện sáng/tối của máy.
+
+An toàn:
+
+- **Chỉ mạng nội bộ** — địa chỉ ngoài mạng LAN (kể cả khi router lỡ mở cổng) bị từ
+  chối.
+- **Có mã bí mật** — mọi lệnh phải kèm mã trong header `X-Boltdown-Token`. Mã nằm
+  sau dấu `#` của link nên trình duyệt không gửi nó lên server hay vào Referer;
+  trang lưu nó rồi xoá khỏi thanh địa chỉ. Không dùng cookie, nên trang web khác
+  không thể mượn trình duyệt của bạn để ra lệnh (CSRF). Gõ sai 10 lần trong một
+  phút thì địa chỉ đó bị khoá một phút. *Tạo link mới* thu hồi link cũ.
+- **Không đụng tới file** — "Gỡ" chỉ bỏ khỏi danh sách; tên file và lỗi từ mạng
+  luôn được hiển thị dưới dạng chữ, không bao giờ thành HTML. Trang có CSP
+  `default-src 'self'`.
+
+Link thêm từ điện thoại vào thẳng danh sách (không bật hộp thoại trên máy tính
+không ai ngồi), vẫn theo quy tắc trang và thư mục như thường.
+
+## FTP
+
+Link `ftp://` và `ftps://` (FTP qua TLS) tải như link web: chia nhiều kết nối,
+mỗi kết nối nhảy tới đoạn của nó bằng `REST`, tạm dừng/tiếp tục được, có giới hạn
+tốc độ. Đăng nhập ghi trong link (`ftp://tên:mật-khẩu@máy/đường/dẫn.iso`) hoặc trong
+*Quy tắc theo trang*; không có thì đăng nhập ẩn danh.
+
+Server FTP hay giới hạn số phiên đăng nhập mỗi địa chỉ (báo `421`). Các đoạn được
+xếp hàng, kết nối nào bị từ chối thì nhường việc cho kết nối đang chạy — server chỉ
+cho 1 phiên vẫn tải đủ file, từng đoạn một. Server không hỗ trợ `REST` thì tải bằng
+một kết nối; server không trả `SIZE` thì tải tới hết dữ liệu.
+
+## Torrent
+
+Link `magnet:` và link tới file `.torrent` tải bằng libtorrent ngay trong app:
+thanh tiến độ, tốc độ, số peer, tạm dừng/tiếp tục, giới hạn tốc độ (cả giới hạn
+chung lẫn nhường mạng bên dưới) như mọi lượt tải khác.
+
+- Tạm dừng lưu *resume data* của libtorrent cạnh file (`<tên>.boltdown-torrent`),
+  nên tiếp tục không phải băm lại toàn bộ.
+- Huỷ thì xoá phần đã tải. Xong 100% thì torrent rời phiên — Boltdown tải, không ở
+  lại seed.
+- Extension: bấm vào link magnet trên trang là gửi sang Boltdown (chỉ cú bấm thật
+  của người dùng; tắt được trong popup, không áp dụng cho cửa sổ ẩn danh nếu chưa
+  cho phép); chuột phải link magnet → *Tải link này bằng Boltdown* cũng được.
+- Bản cài đặt có tuỳ chọn (mặc định tắt) để Windows mở link magnet bằng Boltdown.
+- Muốn lưu chính file `.torrent` thay vì tải nội dung: bỏ tick *Tải link .torrent
+  dưới dạng torrent* trong **Tuỳ chọn → Kết nối**.
+
+## Nhường mạng khi đang bận
+
+**Tuỳ chọn → Kết nối → Tự giảm tốc khi chương trình khác cần mạng**. Lượt tải
+chiếm hết đường truyền thì gói tin của mọi thứ khác phải xếp hàng sau nó — gọi
+video giật, game lag, web chậm. Hàng đợi đó hiện ra ở độ trễ, nên app đo độ trễ tới
+một máy cố định mỗi giây (giống LEDBAT, thuật toán của Windows Update và uTP):
+
+- độ trễ thấp nhất gần đây là đường truyền khi rảnh;
+- độ trễ vượt mức đó quá *Độ trễ thêm cho phép* (mặc định 75 ms) thì tốc độ hạ còn
+  70% mức đang chạy, không xuống dưới 64 KB/s;
+- yên ổn trở lại thì tốc độ tăng dần, và khi đã vượt hẳn tốc độ lúc không giới hạn
+  thì bỏ giới hạn.
+
+Thanh trạng thái ghi rõ *đang nhường mạng: …* để lượt tải tự chậm lại không bị
+tưởng là hỏng. Áp dụng cho mọi loại tải: web, FTP, video, torrent.
+
 ## Playlist và kênh video
 
 **Tệp → Danh sách phát**: dán link playlist/kênh, bấm *Liệt kê video*, tick
@@ -878,7 +951,7 @@ trên Windows (đo trên CI) trước khi gửi request đầu tiên. `tests/tes
 chạy lại các tình huống này và giữ ngưỡng thấp hơn một chút so với số đo trên, để
 máy CI bận vẫn qua.
 
-Khoảng 700 test, chạy hết khoảng một đến hai phút. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
+Khoảng 800 test, chạy hết khoảng một đến hai phút. Bộ test dựng một HTTP server cục bộ biết cư xử tệ theo yêu
 cầu (bỏ qua `Range`, chặn `HEAD`, ngắt kết nối giữa chừng, trả 503, đổi `ETag`,
 không gửi `Content-Length`) — xem `tests/server.py`. Phần giao diện chạy headless qua
 Qt platform `offscreen`, kể cả kiểm tra vẽ biểu đồ và thanh segment. Phần trình duyệt

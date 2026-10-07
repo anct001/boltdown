@@ -32,6 +32,7 @@ from ..ipc.protocol import (
     TYPE_SHOW,
 )
 from ..util.log import get_logger
+from ..util.links import is_download_link
 
 log = get_logger(__name__)
 
@@ -105,8 +106,8 @@ class IpcBridge(QObject):
 
         if kind in (TYPE_DOWNLOAD, TYPE_MEDIA):
             url = (message.get("url") or "").strip()
-            if not url.startswith(("http://", "https://")):
-                return {"ok": False, "error": "only http(s) URLs are accepted"}
+            if not is_download_link(url):
+                return {"ok": False, "error": "only http(s), ftp(s) and magnet links are accepted"}
             log.info("captured %s from the browser: %s", kind, url)
             self.downloadRequested.emit(message)
             return {"ok": True, "accepted": url}
@@ -119,7 +120,7 @@ class IpcBridge(QObject):
                 item for item in items
                 if isinstance(item, dict)
                 and isinstance(item.get("url"), str)
-                and item["url"].startswith(("http://", "https://"))
+                and is_download_link(item["url"])
             ]
             if len(urls) != len(items):
                 return {"ok": False, "error": "only http(s) URLs are accepted"}

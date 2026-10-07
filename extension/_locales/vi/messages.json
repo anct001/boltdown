@@ -78,6 +78,9 @@
   "popupDetect": {
     "message": "Phát hiện video trên trang"
   },
+  "popupMagnets": {
+    "message": "Mở link magnet bằng Boltdown"
+  },
   "popupShowButton": {
     "message": "Hiện nút nổi trên trang"
   },
