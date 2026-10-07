@@ -16,7 +16,8 @@ from PySide6.QtCore import QObject, Qt, Signal
 
 from ..core.categories import category_for, target_dir
 from ..core.engine import Engine, EngineEvent
-from ..core.profiles import SiteProfile, apply_to
+from ..core.profiles import SiteProfile, apply_to, render_folder
+from ..core.profiles import match as match_profile
 from ..core.resume import ResumeMeta, meta_path_for
 from ..core.task import PART_SUFFIX, DownloadRequest, TaskSnapshot, TaskState
 from ..media.detect import classify, suggested_name
@@ -24,6 +25,7 @@ from ..storage.db import Database
 from ..storage.settings import Settings
 from ..util import filenames, proxy
 from ..util.checksums import Expected, Verdict, parse_expected
+from ..util.credentials import unprotect
 from ..util.log import get_logger
 
 log = get_logger(__name__)
@@ -64,6 +66,8 @@ class DownloadItem:
     manual_pause: bool = False
     #: the file name is settled - do not let a re-probe rename it
     name_locked: bool = False
+    #: other addresses for the same file, fetched from alongside `url`
+    mirrors: list[str] = field(default_factory=list)
 
     @property
     def category(self) -> str:
@@ -187,6 +191,7 @@ class Controller(QObject):
                 proxy=extra["proxy"] if extra else None,
                 queue_id=row["queue_id"],
                 name_locked=bool(row["name_locked"]),
+                mirrors=self.db.get_mirrors(row["id"]),
             )
             self._items[item.db_id] = item
             self.itemAdded.emit(item)
@@ -224,6 +229,7 @@ class Controller(QObject):
         audio_only: bool = False,
         queue_id: int | None = None,
         checksum: str | None = None,
+        mirrors: list[str] | None = None,
     ) -> DownloadItem:
         expected = parse_expected(checksum) if checksum else None
         if checksum and expected is None:
@@ -231,7 +237,7 @@ class Controller(QObject):
         # A queued download waits for its queue, never for the Add dialog.
         if queue_id is not None:
             start_now = False
-        save_dir = Path(save_dir) if save_dir else self.settings.download_dir
+        save_dir = Path(save_dir) if save_dir else self.folder_for(url, filename)
         chosen = filenames.sanitize(filename) if filename else None
         guess = chosen or _media_name(url) or filenames.from_url(url) or "download"
         db_id = self.db.add_download(
@@ -269,6 +275,9 @@ class Controller(QObject):
         )
         if expected is not None:
             self.db.set_checksum(db_id, expected.algorithm, expected.digest)
+        item.mirrors = clean_mirrors(mirrors or [], url)
+        if item.mirrors:
+            self.db.set_mirrors(db_id, item.mirrors)
         self._items[db_id] = item
         self.itemAdded.emit(item)
         if start_now:
@@ -276,6 +285,15 @@ class Controller(QObject):
         elif queue_id is not None and queue_id in self._running_queues:
             self.pump_queues()
         return item
+
+    def folder_for(self, url: str, filename: str | None = None) -> Path:
+        """The download folder - or the one a site rule picks for `url`."""
+        base = self.settings.download_dir
+        profile = match_profile(url, self.profiles())
+        if profile is None or not (profile.folder or "").strip():
+            return base
+        name = filename or _media_name(url) or filenames.from_url(url) or ""
+        return render_folder(profile.folder, url, base=base, category=category_for(name))
 
     def start_item(self, db_id: int) -> None:
         item = self._items.get(db_id)
@@ -567,6 +585,9 @@ class Controller(QObject):
                 cookie=row["cookie"],
                 proxy=row["proxy"],
                 note=row["note"] or "",
+                username=row["username"] or None,
+                password=unprotect(row["password"]) or None,
+                folder=row["folder"] or None,
             )
             for row in self.db.list_profiles()
         ]
@@ -581,6 +602,7 @@ class Controller(QObject):
             "referer": item.referer,
             "cookie": item.cookie,
             "proxy": item.proxy,
+            "auth": None,
         })
         chosen_proxy = proxy.resolve(
             tuned["proxy"] or self.settings.get("proxy"),
@@ -603,12 +625,19 @@ class Controller(QObject):
             referer=tuned["referer"],
             user_agent=tuned["user_agent"],
             proxy=chosen_proxy.url,
+            auth=tuned.get("auth"),
             verify_tls=bool(self.settings.get("verify_tls")),
             # The pipeline is derived from the URL, so a restored row picks
             # the right one again without another column in the database.
             max_height=item.max_height or self.settings.video_quality,
             audio_only=item.audio_only,
             ffmpeg_path=self.settings.ffmpeg_path,
+            mirrors=list(item.mirrors),
+            subtitle_langs=[
+                lang.strip() for lang in str(self.settings.get("subtitle_langs") or "").split(",")
+                if lang.strip()
+            ],
+            embed_thumbnail=bool(self.settings.get("embed_thumbnail")),
         )
 
     def _delete_files(self, item: DownloadItem) -> None:
@@ -687,6 +716,18 @@ class Controller(QObject):
             )
         except Exception:  # pragma: no cover - a DB hiccup must not kill the UI
             log.exception("could not persist download %d", item.db_id)
+
+
+def clean_mirrors(urls: list[str], main: str) -> list[str]:
+    """http(s) addresses, each once, none of them the main one."""
+    seen = {main.strip()}
+    kept = []
+    for url in urls:
+        url = url.strip()
+        if url and url.lower().startswith(("http://", "https://")) and url not in seen:
+            seen.add(url)
+            kept.append(url)
+    return kept
 
 
 #: shared by every download; fetches off the GUI thread and caches the answer

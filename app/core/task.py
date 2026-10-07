@@ -45,6 +45,8 @@ MIN_SPLIT = 256 * 1024
 #: a split must be expected to finish the victim's remainder at least this
 #: much sooner, or the new request is not worth making
 MIN_GAIN = 0.25
+#: how long a mirror may take to answer its probe before it is left out
+MIRROR_PROBE_TIMEOUT = 10.0
 #: round trip assumed for a new request before one has been measured
 DEFAULT_RTT = 0.1
 #: a connection the server refused (its connection limit) asks again after
@@ -116,6 +118,12 @@ class DownloadRequest:
     max_height: int | None = None    # cap the video rendition, e.g. 1080
     audio_only: bool = False
     ffmpeg_path: str | None = None
+    #: other addresses serving the same file; segments are spread across them
+    mirrors: list[str] = field(default_factory=list)
+    #: video pages: subtitle languages to add ("vi", "en", "all"), and
+    #: whether to put the thumbnail in as cover art
+    subtitle_langs: list[str] = field(default_factory=list)
+    embed_thumbnail: bool = False
 
     def __post_init__(self) -> None:
         if self.media_kind is None:
@@ -202,6 +210,9 @@ class TaskRunner:
         #: first connection, until it is used or closed
         self._primed: httpx.Response | None = None
         self._workers: list[SegmentWorker] = []
+        #: addresses the segments are fetched from: the probed URL first, then
+        #: every mirror that turned out to serve the same file
+        self._sources: list[str] = []
         #: segment index -> the worker downloading it. A segment in no entry
         #: was handed back (the server refused its connection) and waits for
         #: a worker to adopt it.
@@ -273,6 +284,9 @@ class TaskRunner:
                     if self._all_complete():
                         log.info("task %d already complete on disk", self.id)
                     else:
+                        self._sources = [result.final_url] + await self._usable_mirrors(
+                            client, result
+                        )
                         self._set_state(TaskState.DOWNLOADING)
                         await self._download(client, result)
                 finally:
@@ -412,6 +426,44 @@ class TaskRunner:
         self._target.allocate(self.size)
         self._save_meta()
 
+    async def _usable_mirrors(self, client, result: ProbeResult) -> list[str]:
+        """The mirrors that serve this very file, resumably.
+
+        Only checkable things are checked: the size, and range support. Two
+        servers seldom share an ETag, so a mirror's ETag is not compared -
+        which is why a checksum, when the site publishes one, is the real
+        proof that every segment came out right.
+        """
+        wanted = [
+            url.strip() for url in self.request.mirrors
+            if url.strip().lower().startswith(("http://", "https://"))
+            and url.strip() not in (self.request.url, result.final_url)
+        ]
+        if not wanted or not self.resumable or not self.size:
+            return []
+
+        async def check(url: str) -> str | None:
+            try:
+                found = await asyncio.wait_for(
+                    probe(client, RequestSpec(url=url)), timeout=MIRROR_PROBE_TIMEOUT
+                )
+            except (DownloadError, httpx.HTTPError, asyncio.TimeoutError, TimeoutError) as exc:
+                log.info("task %d: mirror %s unusable: %s", self.id, url, exc)
+                return None
+            if found.size != self.size or not found.resumable:
+                log.info(
+                    "task %d: mirror %s is another file (size %s, ranges %s)",
+                    self.id, url, found.size, found.resumable,
+                )
+                return None
+            return found.final_url
+
+        checked = await asyncio.gather(*(check(url) for url in dict.fromkeys(wanted)))
+        usable = [url for url in checked if url]
+        if usable:
+            log.info("task %d: fetching from %d sources", self.id, 1 + len(usable))
+        return usable
+
     async def _discard_primed(self) -> None:
         primed, self._primed = self._primed, None
         if primed is not None:
@@ -434,13 +486,17 @@ class TaskRunner:
         if not pending:
             return
 
-        workers = [
-            asyncio.create_task(
-                self._worker_loop(client, result, seg, self._take_primed(seg)),
+        sources = self._sources or [result.final_url]
+        workers = []
+        for number, seg in enumerate(pending):
+            primed = self._take_primed(seg)
+            # The probe's stream came from the first source; the rest take
+            # the sources in turn, so the connections spread across them.
+            source = sources[0] if primed is not None else sources[number % len(sources)]
+            workers.append(asyncio.create_task(
+                self._worker_loop(client, result, seg, primed, source),
                 name=f"task{self.id}-seg{seg.index}",
-            )
-            for seg in pending
-        ]
+            ))
         # Resuming past byte 0: nobody wants the probe's stream.
         await self._discard_primed()
         monitor = asyncio.create_task(self._monitor(), name=f"task{self.id}-monitor")
@@ -463,12 +519,14 @@ class TaskRunner:
         result: ProbeResult,
         segment: Segment,
         primed: httpx.Response | None = None,
+        source: str | None = None,
     ) -> None:
         assert self._target is not None
         fd = self._target.open_fd()
+        primary = result.final_url
         worker = SegmentWorker(
             client=client,
-            url=result.final_url,
+            url=source or primary,
             fd=fd,
             bucket=self._bucket,
             stop_event=self._stop,
@@ -487,6 +545,22 @@ class TaskRunner:
             while current is not None:
                 try:
                     await worker.run(current, primed)
+                except CancelledByUser:
+                    raise
+                except DownloadError as exc:
+                    if worker.url == primary:
+                        raise
+                    # A mirror that stops serving costs its connection, not
+                    # the download: this worker carries on from the main
+                    # address, where it left off.
+                    log.warning(
+                        "task %d: mirror %s failed (%s); back to the main address",
+                        self.id, worker.url, exc,
+                    )
+                    worker.release()
+                    worker.url = primary
+                    primed = None
+                    continue
                 except SegmentDeclined as exc:
                     # The server's connection limit is reached. One of the
                     # connections it does serve adopts this segment; this

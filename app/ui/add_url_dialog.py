@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -103,6 +104,11 @@ class AddUrlDialog(QDialog):
         advanced_form.addRow(tr("User-Agent:"), self.user_agent)
         advanced_form.addRow(tr("Proxy:"), self.proxy)
         advanced_form.addRow(tr("Speed limit:"), self.limit)
+        self.mirrors = QPlainTextEdit()
+        self.mirrors.setPlaceholderText(tr("Other addresses of the same file, one per line (optional)"))
+        self.mirrors.setFixedHeight(56)
+        self.mirrors.setTabChangesFocus(True)
+        advanced_form.addRow(tr("Mirrors:"), self.mirrors)
         self.checksum = QLineEdit()
         self.checksum.setPlaceholderText(tr("SHA-256, SHA-1 or MD5 published by the site (optional)"))
         advanced_form.addRow(tr("Checksum:"), self.checksum)
@@ -229,6 +235,16 @@ class AddUrlDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, tr("Add a download"), tr("Speed limit:"))
             return False
+        bad = [
+            line for line in self.mirror_list()
+            if urlsplit(line).scheme not in ("http", "https") or not urlsplit(line).netloc
+        ]
+        if bad:
+            QMessageBox.warning(
+                self, tr("Add a download"),
+                tr("That does not look like an http(s) URL.") + f"\n{bad[0]}",
+            )
+            return False
         if self.checksum.text().strip() and parse_expected(self.checksum.text()) is None:
             QMessageBox.warning(
                 self, tr("Add a download"),
@@ -242,6 +258,9 @@ class AddUrlDialog(QDialog):
     def speed_limit(self) -> int | None:
         text = self.limit.text().strip()
         return parse_size(text) if text else None
+
+    def mirror_list(self) -> list[str]:
+        return [line.strip() for line in self.mirrors.toPlainText().splitlines() if line.strip()]
 
     def options(self) -> dict:
         return {
@@ -258,6 +277,7 @@ class AddUrlDialog(QDialog):
             "max_height": self.quality.currentData(),
             "audio_only": self.audio_only.isChecked(),
             "checksum": self.checksum.text().strip() or None,
+            "mirrors": self.mirror_list(),
         }
 
 

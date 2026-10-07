@@ -35,9 +35,9 @@ from ..core.schedule import PostAction
 from ..core.task import TaskState
 from ..media.detect import classify
 from ..storage.settings import Settings
-from ..util import checksums, postprocess, power
+from ..util import checksums, phone, postprocess, power
 from ..util.log import get_logger
-from ..util.fmt import human_speed
+from ..util.fmt import human_size, human_speed
 from . import icons, theme
 from .add_url_dialog import AddUrlDialog
 from .batch_dialog import BatchDialog
@@ -696,6 +696,10 @@ class MainWindow(QMainWindow):
             return
 
         dialog = AddUrlDialog(self.settings, url=options["url"], parent=self)
+        # A site rule's folder is offered, not hidden behind the default.
+        dialog.dir_edit.setText(
+            str(self.controller.folder_for(options["url"], options.get("filename")))
+        )
         if options.get("filename"):
             dialog.name_edit.setText(options["filename"])
         if any(options.get(k) for k in ("referer", "cookie", "user_agent")):
@@ -776,14 +780,28 @@ class MainWindow(QMainWindow):
             # Once per download, not once per retry.
             self._failed.add(item.db_id)
             self.sounds.play("error")
+            self._tell_phone("failed", tr("Download failed"),
+                             f"{item.filename}\n{item.error or ''}".strip())
 
     def _on_queue_finished(self, queue_id: int) -> None:
         self.sounds.play("queue_done")
+        info = self.controller.queue(queue_id)
+        self._tell_phone("queue_done", tr("Queue finished"), info.name if info else "")
+
+    def _tell_phone(self, event: str, title: str, body: str) -> None:
+        """Send to the phone, if one is set up and wants this kind of news."""
+        if not self.settings.get(f"phone_on_{event}"):
+            return
+        target = phone.Target.from_settings(self.settings)
+        if target.ready:
+            phone.send_later(target, f"Boltdown: {title}", body)
 
     def _on_download_finished(self, item: DownloadItem) -> None:
         """Notify, then run whatever post-processing is switched on."""
         if self.settings.get("notify_on_finish"):
             self._notify(tr("Download finished"), item.filename)
+        size = f" ({human_size(item.size)})" if item.size else ""
+        self._tell_phone("finished", tr("Download finished"), f"{item.filename}{size}")
         wants_extract = (
             self.settings.get("auto_extract") and postprocess.is_archive(item.path)
         )
@@ -844,6 +862,7 @@ class MainWindow(QMainWindow):
             self._notify(tr("Checksum verified"), f"{name} ({algorithm})")
         else:
             self.sounds.play("error")
+            self._tell_phone("failed", tr("Checksum mismatch"), name)
             self._notify(
                 tr("Checksum mismatch"),
                 tr("%s is not the file the site published - it may be corrupted "

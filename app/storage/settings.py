@@ -24,6 +24,16 @@ DEFAULTS: dict[str, Any] = {
     "window_geometry": None,
     "video_quality": None,         # max height for video; None = best available
     "ffmpeg_path": None,           # None -> look next to the app, then on PATH
+    "subtitle_langs": "",          # "vi, en" / "all"; empty = no subtitles
+    "phone_service": "off",        # off | ntfy | telegram
+    "ntfy_server": "https://ntfy.sh",
+    "ntfy_topic": "",
+    "telegram_token": "",          # protected, see util/credentials
+    "telegram_chat": "",
+    "phone_on_finished": True,
+    "phone_on_failed": True,
+    "phone_on_queue_done": True,
+    "embed_thumbnail": False,      # video pages: the thumbnail as cover art
     "start_with_windows": False,   # mirrored into the HKCU Run key
     "extension_id": None,          # last id registered for native messaging
     "theme": "auto",               # auto (follow Windows) | light | dark

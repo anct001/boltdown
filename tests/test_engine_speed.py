@@ -221,7 +221,7 @@ def bench_results(tmp_path_factory) -> dict:
     proc = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "bench_engine.py"),
          "--only", "latency", "slow_link", "flaky", "small_files", "conn_limit",
-         "single_conn", "--json", str(out)],
+         "single_conn", "mirrors", "--json", str(out)],
         capture_output=True, text=True, timeout=600,
     )
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
@@ -239,6 +239,8 @@ def test_every_benchmark_file_arrives_intact(bench_results):
 @pytest.mark.parametrize("name, floor", [
     ("latency", 0.8), ("slow_link", 0.7), ("flaky", 0.75),
     ("conn_limit", 0.6), ("single_conn", 0.8),
+    # two servers at 8 MB/s each: 0.97 with the mirror, 0.48 without
+    ("mirrors", 0.75),
 ])
 def test_the_engine_keeps_close_to_ideal(bench_results, name, floor):
     assert bench_results[name]["efficiency"] >= floor, bench_results[name]

@@ -123,6 +123,52 @@ def _cookie_hook(origin_url: str, cookie: str):
     return scope_cookie
 
 
+class SiteAuth(httpx.Auth):
+    """A site login that speaks whichever scheme the server asks for.
+
+    The first request goes out without credentials; a 401 says whether the
+    server wants Basic or Digest, and from then on every request - the next
+    segment, a resume - answers in that scheme straight away. httpx strips
+    the Authorization header on a redirect to another origin, so the
+    password never follows a link off the site it belongs to.
+    """
+
+    def __init__(self, username: str, password: str) -> None:
+        self._basic = httpx.BasicAuth(username, password)
+        self._digest = httpx.DigestAuth(username, password)
+        self.scheme: str | None = None
+
+    def auth_flow(self, request: httpx.Request):
+        if self.scheme == "basic":
+            yield from self._basic.auth_flow(request)
+            return
+        if self.scheme == "digest":
+            yield from self._digest.auth_flow(request)
+            return
+        response = yield request
+        if response.status_code != 401:
+            return
+        challenges = [c.strip().lower() for c in response.headers.get_list("www-authenticate")]
+        if any(c.startswith("digest") for c in challenges):
+            self.scheme = "digest"
+            # Hand the digest flow the 401 already in hand, rather than let
+            # it ask again just to be told the same challenge.
+            flow = self._digest.auth_flow(request)
+            next(flow)
+            try:
+                retry = flow.send(response)
+            except StopIteration:
+                return
+            answer = yield retry
+            try:
+                flow.send(answer)
+            except StopIteration:
+                pass
+        elif not challenges or any(c.startswith("basic") for c in challenges):
+            self.scheme = "basic"
+            yield from self._basic.auth_flow(request)
+
+
 _SSL_LOCK = threading.Lock()
 _SSL_CONTEXTS: dict[tuple[str | None, str | None], ssl.SSLContext] = {}
 
@@ -202,7 +248,7 @@ def build_client(
         timeout=timeout,
         limits=limits,
         proxy=spec.proxy,
-        auth=httpx.BasicAuth(*spec.auth) if spec.auth else None,
+        auth=SiteAuth(*spec.auth) if spec.auth else None,
         verify=shared_ssl_context() if spec.verify_tls else False,
         trust_env=True,
     )

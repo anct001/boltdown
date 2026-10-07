@@ -78,6 +78,14 @@ CREATE TABLE IF NOT EXISTS checksums (
     checked_at  REAL
 );
 
+-- Other addresses serving the same file (v5).
+CREATE TABLE IF NOT EXISTS download_mirrors (
+    download_id INTEGER NOT NULL REFERENCES downloads(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,
+    url         TEXT NOT NULL,
+    PRIMARY KEY (download_id, position)
+);
+
 CREATE TABLE IF NOT EXISTS schedules (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     queue_id    INTEGER REFERENCES queues(id) ON DELETE CASCADE,
@@ -102,7 +110,10 @@ CREATE TABLE IF NOT EXISTS site_profiles (
     referer     TEXT,
     cookie      TEXT,
     proxy       TEXT,
-    note        TEXT
+    note        TEXT,
+    username    TEXT,
+    password    TEXT,  -- protected: DPAPI on Windows, see util/credentials
+    folder      TEXT   -- "{host}/{year}-{month}": where this site's files go
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -171,7 +182,12 @@ class Database:
                 self.execute(
                     "UPDATE downloads SET name_locked = 1 WHERE downloaded > 0"
                 )
-        # v4 and v5 only add tables, which CREATE TABLE IF NOT EXISTS made.
+        if version < 5:
+            existing = {r["name"] for r in self.query("PRAGMA table_info(site_profiles)")}
+            for column in ("username", "password", "folder"):
+                if column not in existing:
+                    self.execute(f"ALTER TABLE site_profiles ADD COLUMN {column} TEXT")
+        # v4 and v5 also add tables, which CREATE TABLE IF NOT EXISTS made.
         self.execute(
             "UPDATE meta SET value = ? WHERE key = 'schema_version'",
             (str(SCHEMA_VERSION),),
@@ -285,6 +301,21 @@ class Database:
                 (download_id, cookie, referer, user_agent),
             )
 
+    def set_mirrors(self, download_id: int, urls: list[str]) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM download_mirrors WHERE download_id = ?", (download_id,))
+            self._conn.executemany(
+                "INSERT INTO download_mirrors (download_id, position, url) VALUES (?, ?, ?)",
+                [(download_id, n, url) for n, url in enumerate(urls)],
+            )
+
+    def get_mirrors(self, download_id: int) -> list[str]:
+        rows = self.query(
+            "SELECT url FROM download_mirrors WHERE download_id = ? ORDER BY position",
+            (download_id,),
+        )
+        return [row["url"] for row in rows]
+
     # ---------------------------------------------------------------- checksums
 
     def set_checksum(
@@ -347,7 +378,8 @@ class Database:
 
     def save_profile(self, pattern: str, **fields: Any) -> int:
         allowed = ("enabled", "connections", "speed_limit", "user_agent",
-                   "referer", "cookie", "proxy", "note")
+                   "referer", "cookie", "proxy", "note", "username", "password",
+                   "folder")
         values = {k: fields.get(k) for k in allowed}
         values["enabled"] = int(bool(values["enabled"] if values["enabled"] is not None else 1))
         columns = ", ".join(allowed)

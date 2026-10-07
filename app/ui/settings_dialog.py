@@ -30,7 +30,8 @@ from ..core import categories
 from ..media.ffmpeg import find_ffmpeg
 from ..media.ytdlp import version as ytdlp_version
 from ..storage.settings import Settings
-from ..util import autostart, proxy
+from ..util import autostart, phone, proxy
+from ..util.credentials import protect, unprotect
 from ..util.fmt import human_size, parse_size
 from . import theme
 from .add_url_dialog import QUALITIES
@@ -66,6 +67,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._categories_tab(), tr("Categories"))
         tabs.addTab(self._clipboard_tab(), tr("Clipboard"))
         tabs.addTab(self._browser_tab(), tr("Browser integration"))
+        tabs.addTab(self._phone_tab(), tr("Phone"))
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -348,8 +350,15 @@ class SettingsDialog(QDialog):
         ffmpeg_row.addWidget(self.ffmpeg_edit, 1)
         ffmpeg_row.addWidget(pick)
 
+        self.subtitle_langs = QLineEdit(str(self.settings.get("subtitle_langs") or ""))
+        self.subtitle_langs.setPlaceholderText(tr("e.g. vi, en - or all; empty for none"))
+        self.embed_thumbnail = QCheckBox(tr("Put the video's thumbnail in as cover art"))
+        self.embed_thumbnail.setChecked(bool(self.settings.get("embed_thumbnail")))
+
         form = QFormLayout(page)
         form.addRow(tr("Preferred quality:"), self.quality)
+        form.addRow(tr("Subtitles:"), self.subtitle_langs)
+        form.addRow("", self.embed_thumbnail)
         form.addRow(tr("ffmpeg:"), ffmpeg_row)
         self.tool_status = QLabel(_tool_status(self.settings.ffmpeg_path))
         self.tool_status.setWordWrap(True)
@@ -380,6 +389,69 @@ class SettingsDialog(QDialog):
     def parsed_limit(self) -> int | None:
         text = self.limit.text().strip()
         return parse_size(text) if text else None
+
+    def _phone_tab(self) -> QWidget:
+        page = QWidget()
+        self.phone_service = QComboBox()
+        for label, value in ((tr("Off"), phone.OFF), ("ntfy", phone.NTFY),
+                             ("Telegram", phone.TELEGRAM)):
+            self.phone_service.addItem(label, value)
+        self.phone_service.setCurrentIndex(
+            max(0, self.phone_service.findData(self.settings.get("phone_service") or phone.OFF))
+        )
+        self.ntfy_server = QLineEdit(str(self.settings.get("ntfy_server") or phone.DEFAULT_NTFY))
+        self.ntfy_topic = QLineEdit(str(self.settings.get("ntfy_topic") or ""))
+        self.ntfy_topic.setPlaceholderText(tr("a long name nobody would guess"))
+        self.telegram_token = QLineEdit(unprotect(self.settings.get("telegram_token")))
+        self.telegram_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.telegram_token.setPlaceholderText("123456:ABC...")
+        self.telegram_chat = QLineEdit(str(self.settings.get("telegram_chat") or ""))
+        self.phone_events = {}
+        for event, label in (("finished", tr("When a download finishes")),
+                             ("failed", tr("When a download fails")),
+                             ("queue_done", tr("When a queue has finished"))):
+            box = QCheckBox(label)
+            box.setChecked(bool(self.settings.get(f"phone_on_{event}")))
+            self.phone_events[event] = box
+        test = QPushButton(tr("Send a test"))
+        test.clicked.connect(self._test_phone)
+        self.phone_status = QLabel("")
+        self.phone_status.setWordWrap(True)
+
+        form = QFormLayout(page)
+        note = QLabel(tr(
+            "ntfy needs no account: install the ntfy app and subscribe to the "
+            "topic below. Telegram needs a bot from @BotFather and your chat id."
+        ))
+        note.setWordWrap(True)
+        form.addRow(note)
+        form.addRow(tr("Send with:"), self.phone_service)
+        form.addRow(tr("ntfy server:"), self.ntfy_server)
+        form.addRow(tr("ntfy topic:"), self.ntfy_topic)
+        form.addRow(tr("Telegram bot token:"), self.telegram_token)
+        form.addRow(tr("Telegram chat id:"), self.telegram_chat)
+        for box in self.phone_events.values():
+            form.addRow("", box)
+        form.addRow(test, self.phone_status)
+        return page
+
+    def _phone_target(self) -> "phone.Target":
+        return phone.Target(
+            service=self.phone_service.currentData(),
+            ntfy_server=self.ntfy_server.text().strip() or phone.DEFAULT_NTFY,
+            ntfy_topic=self.ntfy_topic.text().strip(),
+            telegram_token=self.telegram_token.text().strip(),
+            telegram_chat=self.telegram_chat.text().strip(),
+            proxy=self.proxy.text().strip() or None,
+        )
+
+    def _test_phone(self) -> None:
+        target = self._phone_target()
+        if not target.ready:
+            self.phone_status.setText(tr("Choose a service and fill in its fields first."))
+            return
+        problem = phone.send(target, "Boltdown", tr("Test message - notifications work."))
+        self.phone_status.setText(tr("Sent.") if problem is None else f"{tr('Failed')}: {problem}")
 
     def _save(self) -> None:
         try:
@@ -413,6 +485,14 @@ class SettingsDialog(QDialog):
             "notify_on_finish": self.notify_on_finish.isChecked(),
             "auto_extract": self.auto_extract.isChecked(),
             "auto_checksum": self.auto_checksum.isChecked(),
+            "subtitle_langs": self.subtitle_langs.text().strip(),
+            "phone_service": self.phone_service.currentData(),
+            "ntfy_server": self.ntfy_server.text().strip() or phone.DEFAULT_NTFY,
+            "ntfy_topic": self.ntfy_topic.text().strip(),
+            "telegram_token": protect(self.telegram_token.text().strip()),
+            "telegram_chat": self.telegram_chat.text().strip(),
+            **{f"phone_on_{event}": box.isChecked() for event, box in self.phone_events.items()},
+            "embed_thumbnail": self.embed_thumbnail.isChecked(),
             "scan_with_defender": self.scan_defender.isChecked(),
             "categories": self.categories.toPlainText().strip() or None,
         })

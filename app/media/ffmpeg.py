@@ -149,6 +149,70 @@ async def merge_tracks(
     )
 
 
+#: ISO 639-1 -> the 639-2 codes MP4 expects in its language field
+_LANG3 = {
+    "vi": "vie", "en": "eng", "ja": "jpn", "ko": "kor", "zh": "zho", "fr": "fra",
+    "de": "deu", "es": "spa", "ru": "rus", "pt": "por", "it": "ita", "th": "tha",
+    "id": "ind",
+}
+
+
+def can_embed_thumbnail(container: str) -> bool:
+    return container.lower() in ("mp4", "m4a", "m4v", "mov", "mkv")
+
+
+def can_embed_subtitles(container: str) -> bool:
+    return container.lower() in ("mp4", "m4v", "mov", "mkv")
+
+
+async def to_jpeg(source: Path, output: Path, *, ffmpeg: str | os.PathLike[str] | None = None) -> None:
+    """Thumbnails come as WebP as often as JPEG; covers have to be JPEG."""
+    await run(["-y", "-i", str(source), "-frames:v", "1", str(output)], ffmpeg=ffmpeg)
+
+
+async def embed_extras(
+    source: Path,
+    output: Path,
+    *,
+    subtitles: list[tuple[Path, str]] = (),
+    cover: Path | None = None,
+    video_streams: int = 1,
+    ffmpeg: str | os.PathLike[str] | None = None,
+) -> None:
+    """Copy `source` to `output` with subtitles and a cover picture added.
+
+    Nothing is re-encoded: audio, video and the (already JPEG) cover are
+    copied. Subtitles become mov_text in MP4 and SubRip in Matroska. The
+    cover becomes MP4's attached picture - the video stream after the
+    `video_streams` the file already has - or a Matroska attachment.
+    """
+    container = output.suffix.lstrip(".").lower()
+    args = ["-y", "-i", str(source)]
+    for path, _lang in subtitles:
+        args += ["-i", str(path)]
+    as_stream = cover is not None and container != "mkv"
+    if as_stream:
+        args += ["-i", str(cover)]
+    args += ["-map", "0"]
+    for n in range(len(subtitles)):
+        args += ["-map", str(n + 1)]
+    if as_stream:
+        args += ["-map", str(len(subtitles) + 1)]
+    args += ["-c", "copy"]
+    if subtitles:
+        args += ["-c:s", "mov_text" if container != "mkv" else "srt"]
+        for n, (_path, lang) in enumerate(subtitles):
+            code = _LANG3.get(lang.split("-")[0].lower(), lang)
+            args += [f"-metadata:s:s:{n}", f"language={code}"]
+    if as_stream:
+        args += [f"-disposition:v:{video_streams}", "attached_pic"]
+    if cover is not None and container == "mkv":
+        args += ["-attach", str(cover), "-metadata:s:t", "mimetype=image/jpeg",
+                 "-metadata:s:t", "filename=cover.jpg"]
+    args.append(str(output))
+    await run(args, ffmpeg=ffmpeg)
+
+
 async def remux(source: Path, output: Path, *, ffmpeg: str | os.PathLike[str] | None = None) -> None:
     """Rewrap one file into another container, copying the streams."""
     await run(["-y", "-i", str(source), "-c", "copy", str(output)], ffmpeg=ffmpeg)

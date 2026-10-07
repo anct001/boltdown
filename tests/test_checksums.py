@@ -203,3 +203,18 @@ def test_the_add_dialog_passes_the_checksum_on(qapp, stack, monkeypatch):
     assert dialog._validate() is True
     assert dialog.options()["checksum"] == f"{SHA}  a.iso"
     dialog.deleteLater()
+
+
+def test_the_add_dialog_passes_mirrors_on(qapp, stack, monkeypatch):
+    from app.ui import add_url_dialog
+    from app.ui.add_url_dialog import AddUrlDialog
+
+    _controller, settings, _db = stack
+    monkeypatch.setattr(add_url_dialog.QMessageBox, "warning", lambda *a, **k: None)
+    dialog = AddUrlDialog(settings, url="https://a.example/f.iso")
+    dialog.mirrors.setPlainText("https://b.example/f.iso\n\n  https://c.example/f.iso  ")
+    assert dialog._validate() is True
+    assert dialog.options()["mirrors"] == ["https://b.example/f.iso", "https://c.example/f.iso"]
+    dialog.mirrors.setPlainText("not a link")
+    assert dialog._validate() is False
+    dialog.deleteLater()
