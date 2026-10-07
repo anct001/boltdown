@@ -205,8 +205,16 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
 
 
+class BenchServer(ThreadingHTTPServer):
+    # The default listen backlog is 5. Eight connections opened at once then
+    # overflow it, and Windows answers the overflow with a reset that the
+    # client only retries 0.5-2 s later - time the bench would charge to the
+    # engine.
+    request_queue_size = 128
+
+
 def serve() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = BenchServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = True
     server.lock = threading.Lock()
     server.connections = 0
