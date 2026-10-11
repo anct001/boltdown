@@ -13,6 +13,10 @@ DEFAULTS: dict[str, Any] = {
     "connections": 8,
     "max_concurrent": 3,
     "speed_limit": None,           # bytes/second, None = unlimited
+    "turtle_mode": False,          # slow mode: one click in the status bar
+    "turtle_limit": 512 * 1024,    # bytes/second while slow mode is on
+    "details_visible": True,       # the panel under the list
+    "window_state": "",            # geometry, splitter, columns - base64
     "adaptive_throttle": False,    # slow down while other traffic needs the line
     "adaptive_target_ms": 75,      # round trip above the quiet one that means "busy"
     "adaptive_host": "",

@@ -39,6 +39,11 @@ Lập trình viên:
 python -m venv .venv && .venv/Scripts/python -m pip install -e ".[dev]"
 ```
 
+Trên Python 3.11, PySide6 được giữ dưới bản 6.12: bản 6.12.0 làm hụt tham chiếu
+của `None` ở gần như mọi lời gọi vẽ, và cửa sổ mở lâu sẽ crash (Python 3.12+ không
+bị, vì ở đó `None` không bao giờ bị giải phóng). `tests/test_qt_binding.py` kiểm
+tra đúng bản đang cài.
+
 Phần tải video cần thêm `ffmpeg` trong PATH (hoặc chỉ đường dẫn trong
 **Tuỳ chọn → Video**). Thiếu ffmpeg thì app vẫn tải xong, chỉ là để nguyên
 `.ts` và không ghép được video với âm thanh.
@@ -59,14 +64,36 @@ loạt, `Ctrl+V` để dán link từ clipboard, nhấp đúp vào dòng đang t
 tiến độ (biểu đồ tốc độ + bản đồ các đoạn), nhấp đúp vào dòng đã xong để mở tệp.
 Hai nút **Hẹn giờ** và **Quét trang web** mở phần hàng đợi và Site Grabber ở dưới.
 
+Những tiện ích nhỏ cho việc dùng hằng ngày:
+
+- **Khung chi tiết** dưới danh sách (`F3` để ẩn/hiện): trạng thái, đã tải, tốc độ,
+  thời gian còn lại, số kết nối, thư mục, địa chỉ, lỗi nếu có, bản đồ các đoạn,
+  và nút *Mở tệp / Mở thư mục / Sao chép URL* — không cần mở hộp thoại riêng.
+  Đường dẫn dài được rút gọn ở giữa để luôn thấy tên cuối, bản đầy đủ nằm trong
+  tooltip.
+- **Phím tắt trên danh sách**: `Space` tạm dừng/tiếp tục mục đang chọn, `Enter`
+  mở tệp (hoặc cửa sổ tiến độ nếu chưa xong), `Ctrl+O` mở thư mục, `Delete` xoá,
+  `Ctrl+F` tìm kiếm.
+- **Chế độ rùa** (`Ctrl+T` hoặc nút con rùa ở thanh trạng thái): giữ tốc độ ở mức
+  đặt trong *Tuỳ chọn → Kết nối* (mặc định 512 KB/s) để nhường mạng cho cuộc gọi
+  hay buổi học online, bấm lần nữa là trả lại. Giới hạn nào thấp hơn thì thắng:
+  lịch giới hạn băng thông hay giới hạn tổng không bao giờ "nới" chế độ rùa.
+- **Số đếm** cạnh từng mục ở thanh bên (Chưa xong 3, Video 12…), như hộp thư.
+- **Nhớ bố cục**: kích thước và vị trí cửa sổ, độ rộng thanh bên và khung chi tiết,
+  độ rộng cột, cột đang sắp xếp và mục đang lọc được giữ nguyên qua các lần mở.
+- Danh sách gọn mắt hơn: icon loại tệp cạnh tên, bỏ lưới dọc, ngày hiện kiểu
+  *Hôm nay 14:05 / Hôm qua / Thứ Hai*, kích thước chưa biết là "—", và chữ % trên
+  thanh tiến độ đổi màu theo phần đã tô nên luôn đọc được. Danh sách trống thì hiện
+  hướng dẫn bắt đầu; tìm không thấy thì nói rõ không có kết quả.
+
 | | |
 |---|---|
 | ![Tiến độ](docs/screenshots/progress-dialog.png) | ![Thêm URL](docs/screenshots/add-url.png) |
 | ![Thêm hàng loạt](docs/screenshots/batch.png) | ![Hẹn giờ](docs/screenshots/scheduler.png) |
 
-### Chín bộ giao diện
+### Mười ba bộ giao diện
 
-**Tuỳ chọn → Giao diện** chọn một trong chín, hoặc để **Theo Windows** cho nó tự
+**Tuỳ chọn → Giao diện** chọn một trong mười ba, hoặc để **Theo Windows** cho nó tự
 đổi sáng/tối theo hệ thống. Đổi là thấy ngay, không cần khởi động lại — kể cả
 icon cũng được vẽ lại theo màu mới.
 
@@ -75,11 +102,18 @@ icon cũng được vẽ lại theo màu mới.
 | ![Sáng](docs/screenshots/themes/light.png)<br>**Sáng** | ![Tối](docs/screenshots/themes/dark.png)<br>**Tối** | ![Cyberpunk](docs/screenshots/themes/cyberpunk.png)<br>**Cyberpunk** |
 | ![Neon](docs/screenshots/themes/neon.png)<br>**Neon** | ![Kính mờ](docs/screenshots/themes/glass.png)<br>**Kính mờ** | ![Nord](docs/screenshots/themes/nord.png)<br>**Nord** |
 | ![Dracula](docs/screenshots/themes/dracula.png)<br>**Dracula** | ![Pixel Art](docs/screenshots/themes/pixel.png)<br>**Pixel Cyberpunk** | ![Isometric 3D](docs/screenshots/themes/iso.png)<br>**Isometric 3D** |
+| ![Catppuccin Mocha](docs/screenshots/themes/catppuccin-mocha.png)<br>**Catppuccin Mocha** | ![Catppuccin Latte](docs/screenshots/themes/catppuccin-latte.png)<br>**Catppuccin Latte** | ![Tokyo Night](docs/screenshots/themes/tokyo-night.png)<br>**Tokyo Night** |
+| ![Gruvbox Dark](docs/screenshots/themes/gruvbox.png)<br>**Gruvbox Dark** | | |
+
+Bốn theme cuối lấy đúng bảng màu của các theme quen thuộc trong VS Code và
+terminal (catppuccin.com, Tokyo Night, Gruvbox), để máy đã dùng chúng trông như
+một bộ. Chỗ nào màu gốc quá nhạt để làm chữ (vàng, xanh lá của Latte) thì dùng
+một bậc đậm hơn của cùng sắc đó.
 
 Vài điểm về cách làm:
 
 - Mỗi theme là **một bộ token màu**, không phải một file CSS riêng — cùng một
-  stylesheet sinh ra cho cả chín, nên thêm theme mới chỉ là thêm mười bốn màu.
+  stylesheet sinh ra cho mọi theme, nên thêm theme mới chỉ là thêm mười bốn màu.
 - Có test kiểm **độ tương phản**: chữ trên nền của *mọi* theme phải đạt tối
   thiểu 4.5:1 (mức AA của WCAG), nên không theme nào đẹp mà khó đọc.
 - **Kính mờ** dùng nền trong suốt thật: app xin Windows 11 dựng lớp *acrylic*
@@ -200,7 +234,7 @@ Vài quyết định đáng nói:
 
 ```bash
 .venv/Scripts/python scripts/make_screenshots.py --theme dark
-.venv/Scripts/python scripts/make_screenshots.py --gallery   # bảng chín theme ở trên
+.venv/Scripts/python scripts/make_screenshots.py --gallery   # bảng theme ở trên
 ```
 
 ## Tích hợp trình duyệt

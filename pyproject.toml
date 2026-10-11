@@ -9,7 +9,13 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = [
-    "PySide6-Essentials>=6.6",
+    # 6.12.0 drops a reference to None on nearly every call that returns
+    # nothing (setPen, save, drawControl...); on Python 3.11, where None is
+    # not immortal, a long-running window runs it to zero and crashes. 3.12+
+    # made None immortal, so it is only held back below that.
+    # tests/test_qt_binding.py checks whatever version is installed.
+    "PySide6-Essentials>=6.6,<6.12; python_version < '3.12'",
+    "PySide6-Essentials>=6.6; python_version >= '3.12'",
 ]
 media = [
     "yt-dlp>=2024.1.0",     # extracts direct URLs; we do the downloading
@@ -25,7 +31,8 @@ packaging = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    "PySide6-Essentials>=6.6",
+    "PySide6-Essentials>=6.6,<6.12; python_version < '3.12'",  # see `gui`
+    "PySide6-Essentials>=6.6; python_version >= '3.12'",
     "yt-dlp>=2024.1.0",
     "cryptography>=42",
     "libtorrent>=2.0",

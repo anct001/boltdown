@@ -150,6 +150,7 @@ class Controller(QObject):
 
     def start(self) -> None:
         self.apply_adaptive()
+        self.apply_speed_limit()  # slow mode survives a restart
         self.engine.start()
         self.restore()
         if self.settings.get("use_system_proxy"):
@@ -480,8 +481,29 @@ class Controller(QObject):
         )
 
     def set_speed_limit(self, limit: int | None) -> None:
-        self.engine.set_speed_limit(limit)
         self.settings.set("speed_limit", limit)
+        self.apply_speed_limit()
+
+    def turtle_limit(self) -> int | None:
+        """The slow-mode cap while it is switched on, else None."""
+        if not self.settings.get("turtle_mode"):
+            return None
+        return int(self.settings.get("turtle_limit") or 0) or None
+
+    def apply_speed_limit(self, base: int | None | object = ...) -> int | None:
+        """Hand the engine the lower of `base` (default: the saved limit) and
+        slow mode's cap - a schedule or setting never lifts slow mode."""
+        if base is ...:
+            base = self.settings.speed_limit
+        turtle = self.turtle_limit()
+        limits = [value for value in (base, turtle) if value]
+        effective = min(limits) if limits else None
+        self.engine.set_speed_limit(effective)
+        return effective
+
+    def set_turtle(self, on: bool) -> int | None:
+        self.settings.set("turtle_mode", bool(on))
+        return self.apply_speed_limit()
 
     # ------------------------------------------------------------------ queues
 

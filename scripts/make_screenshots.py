@@ -114,6 +114,9 @@ def main(argv: list[str] | None = None) -> int:
     controller.add(f"{base}/demo/ban-ke-hoach.pdf", filename="báo cáo quý 4.pdf")
     controller.add(f"{base}/demo/phim-tap-2.mkv", start_now=False)
     pump(9)
+    # The first file selected, so the details panel has something to show.
+    window.table.selectRow(0)
+    window.table.setCurrentIndex(window.proxy.index(0, 0))
 
     if args.gallery:
         gallery = out / "themes"

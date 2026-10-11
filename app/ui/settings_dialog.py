@@ -170,6 +170,10 @@ class SettingsDialog(QDialog):
         limit = self.settings.speed_limit
         self.limit = QLineEdit(human_size(limit).replace(" ", "") if limit else "")
         self.limit.setPlaceholderText(tr("unlimited"))
+        turtle = int(self.settings.get("turtle_limit") or 0)
+        self.turtle_limit = QLineEdit(human_size(turtle).replace(" ", "") if turtle else "")
+        self.turtle_limit.setPlaceholderText("512KB")
+        self.turtle_limit.setToolTip(tr("Ctrl+T or the turtle in the status bar switches it"))
 
         self.proxy = QLineEdit(self.settings.get("proxy") or "")
         self.proxy.setPlaceholderText(
@@ -210,6 +214,7 @@ class SettingsDialog(QDialog):
         form.addRow(tr("Default connections:"), self.connections)
         form.addRow(tr("Simultaneous downloads:"), self.concurrent)
         form.addRow(tr("Global speed limit:"), self.limit)
+        form.addRow(tr("Slow mode limit:"), self.turtle_limit)
         form.addRow("", self.adaptive)
         form.addRow(tr("Allowed extra delay:"), self.adaptive_target)
         form.addRow("", self.open_torrents)
@@ -525,6 +530,12 @@ class SettingsDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, tr("Settings"), tr("Global speed limit:"))
             return
+        try:
+            text = self.turtle_limit.text().strip()
+            turtle_limit = parse_size(text) if text else 512 * 1024
+        except ValueError:
+            QMessageBox.warning(self, tr("Settings"), tr("Slow mode limit:"))
+            return
         self.settings.update({
             "download_dir": self.dir_edit.text().strip() or None,
             "use_categories": self.use_categories.isChecked(),
@@ -537,6 +548,7 @@ class SettingsDialog(QDialog):
             "connections": self.connections.value(),
             "max_concurrent": self.concurrent.value(),
             "speed_limit": limit,
+            "turtle_limit": turtle_limit,
             "adaptive_throttle": self.adaptive.isChecked(),
             "open_torrents": self.open_torrents.isChecked(),
             "remote_enabled": self.remote_enabled.isChecked(),

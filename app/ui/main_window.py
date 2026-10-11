@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import threading
@@ -9,7 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt, QUrl, Signal
+from PySide6.QtCore import QByteArray, QSize, QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -22,8 +23,8 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QSplitter,
-    QTableView,
     QToolBar,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -52,6 +53,7 @@ from .dropbox import DropBox
 from .grabber_dialog import GrabberDialog
 from .history_dialog import HistoryDialog
 from .refresh_dialog import BROWSER_WAIT, RefreshDialog
+from .details_panel import DetailsPanel
 from .remote_bridge import RemoteControl
 from .i18n import tr
 from .playlist_dialog import PlaylistDialog
@@ -65,9 +67,13 @@ from .task_model import (
     COL_ADDED,
     COL_STATUS,
     DownloadFilterProxy,
+    DownloadTable,
     DownloadTableModel,
+    COUNT_ROLE,
     ITEM_ROLE,
+    CountDelegate,
     ProgressDelegate,
+    matches_filter,
 )
 
 FILTER_ROLE = Qt.ItemDataRole.UserRole + 10
@@ -148,6 +154,7 @@ class MainWindow(QMainWindow):
         controller.queueFinished.connect(self._on_queue_finished)
         controller.queuesChanged.connect(self._rebuild_queue_nodes)
         self._update_action_states()
+        self.restore_layout()
 
     # ------------------------------------------------------------------ build
 
@@ -225,6 +232,20 @@ class MainWindow(QMainWindow):
         self.action_exit = QAction(icons.exit_icon(), tr("Exit"), self)
         self.action_exit.triggered.connect(self.quit_application)
 
+        self.action_details = QAction(icons.info_icon(), tr("Details panel"), self)
+        self.action_details.setShortcut(QKeySequence("F3"))
+        self.action_details.setCheckable(True)
+        self.action_details.setChecked(bool(self.settings.get("details_visible")))
+        self.action_details.toggled.connect(self.toggle_details)
+        self.addAction(self.action_details)
+
+        self.action_turtle = QAction(icons.turtle_icon(), tr("Slow mode"), self)
+        self.action_turtle.setShortcut(QKeySequence("Ctrl+T"))
+        self.action_turtle.setCheckable(True)
+        self.action_turtle.setChecked(bool(self.settings.get("turtle_mode")))
+        self.action_turtle.toggled.connect(self.toggle_turtle)
+        self.addAction(self.action_turtle)
+
     def _build_toolbar(self) -> None:
         bar = QToolBar("main", self)
         bar.setMovable(False)
@@ -271,6 +292,8 @@ class MainWindow(QMainWindow):
         options.addAction(self.action_clipboard)
         options.addAction(self.action_dropbox)
         options.addAction(self.action_scene)
+        options.addAction(self.action_details)
+        options.addAction(self.action_turtle)
         options.addSeparator()
         options.addAction(self.action_options)
 
@@ -282,6 +305,15 @@ class MainWindow(QMainWindow):
     def _build_body(self) -> None:
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        # Label, then how many downloads it holds - the way a mail client
+        # shows unread counts, so "Unfinished 3" answers a question at once.
+        # Drawn inside the one cell: a second column got its own rounded
+        # selection and the number floated apart from its label.
+        self.tree.setItemDelegate(CountDelegate(self.tree))
+        # One height for every entry: measured lazily, the rows below the
+        # first few came out shorter until the next theme change.
+        self.tree.setUniformRowHeights(True)
+        self._counts: dict[tuple, int] = {}
         self.tree.setMinimumWidth(170)
         self.tree.setMaximumWidth(280)
         for label, kind, value in (
@@ -314,7 +346,7 @@ class MainWindow(QMainWindow):
         self.tree.currentItemChanged.connect(self._on_tree_selection)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText(tr("Search"))
+        self.search.setPlaceholderText(tr("Search  (Ctrl+F)"))
         self.search.setToolTip(tr(
             "Name, address, source page or error - accents optional, every "
             "word must match. Ctrl+F to search, Esc to clear."
@@ -333,8 +365,15 @@ class MainWindow(QMainWindow):
         find.triggered.connect(self._focus_search)
         self.addAction(find)
 
-        self.table = QTableView()
+        self.table = DownloadTable()
+        self.table.empty_text = self._empty_text
         self.table.setModel(self.proxy)
+        # Rows, not a spreadsheet: no grid, a little air, the icon beside
+        # the name.
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.setIconSize(QSize(18, 18))
         self.table.setItemDelegateForColumn(COL_STATUS, ProgressDelegate(self.table))
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -369,20 +408,54 @@ class MainWindow(QMainWindow):
         search_row.addWidget(self.search, 1)
         search_row.addWidget(self.search_count)
         right_layout.addLayout(search_row)
-        right_layout.addWidget(self.table, 1)
+        self.details = DetailsPanel()
+        self.details.openFileRequested.connect(self._open_file)
+        self.details.openFolderRequested.connect(self._open_folder)
+        self.details.setVisible(bool(self.settings.get("details_visible")))
+        self.table.selectionModel().currentRowChanged.connect(self._on_current_changed)
+        self.list_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.list_splitter.setChildrenCollapsible(False)
+        self.list_splitter.addWidget(self.table)
+        self.list_splitter.addWidget(self.details)
+        self.list_splitter.setStretchFactor(0, 1)
+        self.list_splitter.setSizes([460, 150])
+        right_layout.addWidget(self.list_splitter, 1)
         right_layout.addWidget(self.scene)
 
-        splitter = QSplitter()
-        splitter.addWidget(self.tree)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(1, 1)
-        self.setCentralWidget(splitter)
+        # Keys on the list itself, so typing a space in the search box is
+        # still a space.
+        for keys, handler in (
+            ("Space", self.toggle_selected),
+            ("Return", self._activate_current),
+            ("Enter", self._activate_current),
+            ("Ctrl+O", self._open_selected_folder),
+        ):
+            action = QAction(self.table)
+            action.setShortcut(QKeySequence(keys))
+            action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
+            action.triggered.connect(handler)
+            self.table.addAction(action)
+
+        self.splitter = QSplitter()
+        self.splitter.addWidget(self.tree)
+        self.splitter.addWidget(right)
+        self.splitter.setStretchFactor(1, 1)
+        self.setCentralWidget(self.splitter)
 
     def _build_statusbar(self) -> None:
         self.status_speed = QLabel()
         self.status_count = QLabel()
+        # Slow mode, one click away - Transmission's turtle: give the line
+        # back for a call without opening the settings.
+        self.turtle_button = QToolButton()
+        self.turtle_button.setObjectName("turtleButton")
+        self.turtle_button.setDefaultAction(self.action_turtle)
+        self.turtle_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.turtle_button.setAutoRaise(True)
+        self._label_turtle()
         self.statusBar().addPermanentWidget(self.status_count)
         self.statusBar().addPermanentWidget(self.status_speed)
+        self.statusBar().addPermanentWidget(self.turtle_button)
         self._refresh_status()
 
     # ---------------------------------------------------------------- actions
@@ -523,7 +596,8 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec() != SettingsDialog.DialogCode.Accepted:
             return
-        self.controller.engine.set_speed_limit(self.settings.speed_limit)
+        self.controller.apply_speed_limit()
+        self._label_turtle()
         self.controller.apply_adaptive()
         self.remote.apply()
         self.controller.engine.max_concurrent = self.settings.max_concurrent
@@ -536,6 +610,7 @@ class MainWindow(QMainWindow):
         Icons are painted, not loaded, so a theme change means repainting them
         - otherwise a Cyberpunk window would keep the blue arrows of Dark.
         """
+        self._counts.clear()  # repainted in the new theme's muted colour
         for action, icon in (
             (self.action_add, icons.add_icon()),
             (self.action_batch, icons.batch_icon()),
@@ -553,6 +628,8 @@ class MainWindow(QMainWindow):
             (self.action_clipboard, icons.clipboard_icon()),
             (self.action_paste, icons.link_icon()),
             (self.action_exit, icons.exit_icon()),
+            (self.action_details, icons.info_icon()),
+            (self.action_turtle, icons.turtle_icon()),
         ):
             action.setIcon(icon)
 
@@ -895,13 +972,75 @@ class MainWindow(QMainWindow):
         self.action_resume.setEnabled(stopped and not live)
         self.action_delete.setEnabled(bool(items))
 
+    # ------------------------------------------------------- details & keys
+
+    def toggle_details(self, visible: bool) -> None:
+        self.details.setVisible(visible)
+        self.settings.set("details_visible", bool(visible))
+        self.details.refresh()
+
+    def _on_current_changed(self, current, _previous) -> None:
+        self.details.show_item(current.data(ITEM_ROLE) if current.isValid() else None)
+
+    def toggle_selected(self) -> None:
+        """Space: pause what runs, resume what does not."""
+        items = self._selected_items()
+        if not items:
+            return
+        if any(i.is_live for i in items):
+            self.pause_selected()
+        else:
+            self.resume_selected()
+
+    def _activate_current(self) -> None:
+        index = self.table.currentIndex()
+        if index.isValid():
+            self._on_double_click(index)
+
+    def _open_selected_folder(self) -> None:
+        items = self._selected_items()
+        if items:
+            self._open_folder(items[0])
+
+    def toggle_turtle(self, on: bool) -> None:
+        self.controller.set_turtle(on)
+        self._label_turtle()
+
+    def _label_turtle(self) -> None:
+        limit = int(self.settings.get("turtle_limit") or 0)
+        on = bool(self.settings.get("turtle_mode"))
+        self.turtle_button.setText(human_speed(limit) if on and limit else "")
+        self.action_turtle.setToolTip(
+            tr("Slow mode: downloads held to %s (Ctrl+T)") % human_speed(limit)
+        )
+
     def toggle_scene(self, visible: bool) -> None:
         self.scene.setVisible(visible)
         self.settings.set("scene_visible", bool(visible))
         if visible:
             self.scene.update_downloads(rows_from_items(self.controller.items()))
 
+    def _refresh_counts(self) -> None:
+        """The number beside each sidebar entry; only touched when it changes."""
+        items = self.controller.items()
+        for node in self._tree_nodes():
+            payload = node.data(0, FILTER_ROLE)
+            if not payload or node is self.queue_root:
+                continue
+            kind, value = payload
+            if node.childCount() and kind == "all":
+                continue  # a group heading; its children carry the numbers
+            count = sum(1 for item in items if matches_filter(item, kind, value))
+            key = (id(node), kind, value)
+            if self._counts.get(key) == count:
+                continue
+            self._counts[key] = count
+            node.setData(0, COUNT_ROLE, count)
+
     def _refresh_status(self) -> None:
+        self._refresh_counts()
+        if self.details.isVisible():
+            self.details.refresh()
         if self.scene.isVisible():
             self.scene.update_downloads(rows_from_items(self.controller.items()))
         speed = self.controller.total_speed()
@@ -937,6 +1076,22 @@ class MainWindow(QMainWindow):
     def _focus_search(self) -> None:
         self.search.setFocus(Qt.FocusReason.ShortcutFocusReason)
         self.search.selectAll()
+
+    def _empty_text(self) -> tuple[str, str]:
+        """What the empty list says - it depends on why it is empty."""
+        if self.proxy.searching:
+            return (
+                tr("Nothing matches \u201c%s\u201d") % self.search.text().strip(),
+                tr("Try fewer words; accents do not matter."),
+            )
+        if self.model.rowCount() > 0:
+            return tr("Nothing here"), tr("No download in this list.")
+        return (
+            tr("No downloads yet"),
+            tr("Press Ctrl+N to add a link, Ctrl+V to paste one, or drop links "
+               "anywhere in this window. Downloads the browser starts come here "
+               "by themselves once the extension is set up."),
+        )
 
     def _update_search_count(self, *_args) -> None:
         """"12 / 340" while a search is on; nothing otherwise."""
@@ -1169,7 +1324,65 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------- lifecycle
 
+    # ---------------------------------------------------------------- layout
+
+    def save_layout(self) -> None:
+        """Window size and place, panel widths, columns, sort and filter."""
+        def b64(data) -> str:
+            return bytes(data.toBase64()).decode("ascii")
+
+        current = self.tree.currentItem()
+        state = {
+            "geometry": b64(self.saveGeometry()),
+            "splitter": b64(self.splitter.saveState()),
+            "list_splitter": b64(self.list_splitter.saveState()),
+            "header": b64(self.table.horizontalHeader().saveState()),
+            "filter": list(current.data(0, FILTER_ROLE) or ()) if current else [],
+        }
+        try:
+            self.settings.set("window_state", json.dumps(state))
+        except Exception as exc:  # noqa: BLE001 - a convenience must not stop a close
+            log.debug("layout not saved: %s", exc)
+
+    def restore_layout(self) -> bool:
+        """Put things back as they were; False when there is nothing (valid) saved."""
+        try:
+            state = json.loads(self.settings.get("window_state") or "{}")
+        except ValueError:
+            return False
+        if not isinstance(state, dict) or not state:
+            return False
+
+        def raw(key: str) -> QByteArray:
+            return QByteArray.fromBase64(str(state.get(key) or "").encode("ascii"))
+
+        if state.get("geometry"):
+            self.restoreGeometry(raw("geometry"))
+        if state.get("splitter"):
+            self.splitter.restoreState(raw("splitter"))
+        if state.get("list_splitter"):
+            self.list_splitter.restoreState(raw("list_splitter"))
+        if state.get("header"):
+            self.table.horizontalHeader().restoreState(raw("header"))
+        wanted = tuple(state.get("filter") or ())
+        if wanted:
+            for node in self._tree_nodes():
+                if tuple(node.data(0, FILTER_ROLE) or ()) == wanted:
+                    self.tree.setCurrentItem(node)
+                    break
+        return True
+
+    def _tree_nodes(self) -> list[QTreeWidgetItem]:
+        nodes = []
+        stack = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
+        while stack:
+            node = stack.pop(0)
+            nodes.append(node)
+            stack.extend(node.child(i) for i in range(node.childCount()))
+        return nodes
+
     def closeEvent(self, event) -> None:
+        self.save_layout()
         if (
             not self._force_quit
             and self.tray is not None

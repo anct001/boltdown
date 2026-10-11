@@ -55,7 +55,8 @@ class QueueScheduler(QObject):
         self._timer = QTimer(self)
         self._timer.setInterval(TICK_MS)
         self._timer.timeout.connect(self.tick)
-        self._applied_limit: int | None = -1  # -1 = nothing applied yet
+        #: (scheduled limit, slow-mode cap) last applied; None = nothing yet
+        self._applied_limit: tuple | None = None
         controller.queueFinished.connect(self._on_queue_finished)
 
     # ------------------------------------------------------------- lifecycle
@@ -97,10 +98,12 @@ class QueueScheduler(QObject):
             return None
         schedule, limit = pair
         wanted = limit if schedule.covers(now) else self.controller.settings.speed_limit
-        if wanted != self._applied_limit:
+        # Slow mode is part of the key: switching it re-applies the schedule.
+        key = (wanted, self.controller.turtle_limit())
+        if key != self._applied_limit:
             log.info("bandwidth schedule: limit is now %s", wanted or "unlimited")
-            self.controller.engine.set_speed_limit(wanted)
-            self._applied_limit = wanted
+            self.controller.apply_speed_limit(wanted)
+            self._applied_limit = key
         return wanted
 
     def tick(self, now: datetime | None = None) -> None:

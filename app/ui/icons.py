@@ -417,6 +417,21 @@ def clock_icon(color: QColor | None = None) -> QIcon:
     return _finish(pixmap, p)
 
 
+def turtle_icon(color: QColor | None = None) -> QIcon:
+    """Slow mode: a shell, a head, four legs."""
+    pixmap, p = _canvas()
+    accent = color or _accent()
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(accent))
+    for x in (9, 20):                      # legs
+        p.drawRoundedRect(QRectF(x, 19, 4, 6), 2, 2)
+    p.drawEllipse(QPointF(26, 17), 3.6, 3.2)  # head
+    p.drawChord(QRectF(5, 7, 21, 22), 0, 180 * 16)  # shell
+    p.setBrush(QBrush(_token("window")))
+    p.drawEllipse(QPointF(15.5, 13.5), 2.6, 2.2)   # a plate on the shell
+    return _finish(pixmap, p)
+
+
 def history_icon(color: QColor | None = None) -> QIcon:
     pixel = _maybe_pixel("history", color)
     if pixel is not None:

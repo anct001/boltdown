@@ -79,6 +79,17 @@ class Palette:
         c.setAlpha(alpha)
         return c
 
+    def mix(self, token: str, other: str, amount: float) -> str:
+        """`token` blended `amount` of the way towards `other`, as a hex colour.
+
+        For lines that should whisper: a solid colour, so an opaque theme's
+        stylesheet stays free of rgba().
+        """
+        a, b = self.color(token), self.color(other)
+        blend = [round(x + (y - x) * amount) for x, y in
+                 ((a.red(), b.red()), (a.green(), b.green()), (a.blue(), b.blue()))]
+        return QColor(*blend).name()
+
     def css(self, token: str, alpha: int | None = None) -> str:
         """A colour for the stylesheet, honouring the theme's opacity."""
         c = self.color(token)
@@ -219,6 +230,87 @@ DRACULA = Palette(
     selection="#44475a",
 )
 
+#: The four below follow well-known editor themes, colour for colour, so a
+#: desk that already runs them looks like one desk. Where a hue is too pale
+#: to read as text on its own background (Latte's yellow and green), a
+#: darker step of the same hue stands in.
+
+#: Catppuccin Mocha - catppuccin.com: soft pastels on a deep blue-grey.
+CATPPUCCIN_MOCHA = Palette(
+    name="catppuccin-mocha", label="Catppuccin Mocha", dark=True,
+    window="#181825",        # mantle
+    surface="#1e1e2e",       # base
+    surface_alt="#313244",   # surface0
+    border="#45475a",        # surface1
+    text="#cdd6f4",
+    muted="#a6adc8",         # subtext0
+    accent="#cba6f7",        # mauve
+    accent_hover="#d8bdfa",
+    on_accent="#1e1e2e",
+    success="#a6e3a1",
+    warning="#fab387",       # peach
+    danger="#f38ba8",
+    track="#313244",
+    selection="#45475a",
+)
+
+#: Catppuccin Latte - the light flavour of the same palette.
+CATPPUCCIN_LATTE = Palette(
+    name="catppuccin-latte", label="Catppuccin Latte", dark=False,
+    window="#e6e9ef",        # mantle
+    surface="#eff1f5",       # base
+    surface_alt="#dce0e8",   # crust
+    border="#bcc0cc",        # surface1
+    text="#4c4f69",
+    muted="#6c6f85",         # subtext0
+    accent="#8839ef",        # mauve
+    accent_hover="#7028d6",
+    on_accent="#ffffff",
+    success="#2f8a1f",       # green, a step darker to read as text
+    warning="#c4600a",       # peach, likewise
+    danger="#d20f39",
+    track="#dce0e8",
+    selection="#ddd0f7",
+)
+
+#: Tokyo Night - the VS Code theme: city lights on a midnight blue.
+TOKYO_NIGHT = Palette(
+    name="tokyo-night", label="Tokyo Night", dark=True,
+    window="#16161e",
+    surface="#1a1b26",
+    surface_alt="#24283b",
+    border="#3b4261",
+    text="#c0caf5",
+    muted="#9aa5ce",
+    accent="#7aa2f7",
+    accent_hover="#8db0ff",
+    on_accent="#16161e",
+    success="#9ece6a",
+    warning="#e0af68",
+    danger="#f7768e",
+    track="#292e42",
+    selection="#283457",
+)
+
+#: Gruvbox Dark - retro, warm, easy on the eyes at night.
+GRUVBOX = Palette(
+    name="gruvbox", label="Gruvbox Dark", dark=True,
+    window="#1d2021",        # bg0_h
+    surface="#282828",       # bg0
+    surface_alt="#32302f",   # bg0_s
+    border="#504945",        # bg2
+    text="#ebdbb2",
+    muted="#a89984",         # fg4
+    accent="#fe8019",        # orange
+    accent_hover="#ff9a45",
+    on_accent="#1d2021",
+    success="#b8bb26",
+    warning="#fabd2f",
+    danger="#fb4934",
+    track="#3c3836",
+    selection="#504945",
+)
+
 #: A pixel arcade in a rainy neon alley. The palette stays small and saturated
 #: the way an 8-bit machine forced it to be, but the hues come from the
 #: cyberpunk end: magenta signage, cyan glow, violet-black night. Deliberately
@@ -271,7 +363,10 @@ ISO = Palette(
 
 #: name -> palette, in the order the picker shows them
 THEMES: dict[str, Palette] = {
-    p.name: p for p in (LIGHT, DARK, CYBERPUNK, NEON, GLASS, NORD, DRACULA, PIXEL, ISO)
+    p.name: p for p in (
+        LIGHT, DARK, CATPPUCCIN_LATTE, CATPPUCCIN_MOCHA, TOKYO_NIGHT, GRUVBOX,
+        NORD, DRACULA, CYBERPUNK, NEON, GLASS, PIXEL, ISO,
+    )
 }
 
 _current: Palette = LIGHT
@@ -413,7 +508,8 @@ def stylesheet(p: Palette) -> str:
         color: {p.text};
     }}
     QTableView {{ gridline-color: {p.border}; }}
-    QTableView::item {{ padding: 4px 6px; }}
+    QTableView::item {{ padding: 4px 8px; border-bottom: 1px solid {p.mix('surface', 'border', 0.55)}; }}
+    QTableView::item:selected {{ background: {p.selection}; color: {p.text}; }}
     QHeaderView::section {{
         background: {p.css('surface_alt')};
         color: {p.muted};
@@ -697,6 +793,12 @@ def apply(app: QApplication, preference: str | None = AUTO) -> Palette:
         # off again when switching back to a solid theme.
         window.setAttribute(
             Qt.WidgetAttribute.WA_TranslucentBackground, _current.translucent
+        )
+        # Turning translucency on also sets "no system background"; turning
+        # it off does not clear it, and a solid theme chosen after a glass one
+        # left see-through holes wherever no child painted.
+        window.setAttribute(
+            Qt.WidgetAttribute.WA_NoSystemBackground, _current.translucent
         )
         if window.isVisible():
             apply_backdrop(window, _current)
