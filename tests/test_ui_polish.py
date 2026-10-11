@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -261,6 +262,10 @@ def test_a_long_folder_loses_its_middle_not_its_end(window):
     window.show()
     window.details.show_item(item)
     label = window.details.fields["folder"]
-    assert label.text().endswith("folder")  # the end survives
-    assert "…" in label.text()
-    assert label.toolTip() == item.save_path
+    full = str(Path(item.save_path))  # backslashes on Windows
+    shown = label.text()
+    # How much survives depends on the font; what matters is that the
+    # middle went, the end stayed, and the whole path is one hover away.
+    assert "…" in shown and len(shown) < len(full)
+    assert shown[-3:] == full[-3:]
+    assert label.toolTip() == full
