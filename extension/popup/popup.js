@@ -27,7 +27,7 @@ function siteOf(url) {
 }
 
 /** Settings shown as checkboxes, by element id. */
-const TOGGLES = ["enabled", "captureMedia", "showButton", "captureIncognito"];
+const TOGGLES = ["enabled", "captureMedia", "captureMagnets", "showButton", "captureIncognito"];
 const SITE_ORIGINS = ["http://*/*", "https://*/*"];
 
 function t(key) {

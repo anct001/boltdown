@@ -38,6 +38,7 @@ from ..storage.settings import Settings
 from ..util import checksums, phone, postprocess, power
 from ..util.log import get_logger
 from ..util.fmt import human_size, human_speed
+from ..util.links import is_download_link
 from . import icons, theme
 from .add_url_dialog import AddUrlDialog
 from .batch_dialog import BatchDialog
@@ -51,6 +52,7 @@ from .dropbox import DropBox
 from .grabber_dialog import GrabberDialog
 from .history_dialog import HistoryDialog
 from .refresh_dialog import BROWSER_WAIT, RefreshDialog
+from .remote_bridge import RemoteControl
 from .i18n import tr
 from .playlist_dialog import PlaylistDialog
 from .profiles_dialog import SiteProfilesDialog
@@ -127,6 +129,9 @@ class MainWindow(QMainWindow):
         self.scheduler = QueueScheduler(controller, controller.db, self)
         self.scheduler.actionRequested.connect(self._on_post_action)
         self.scheduler.start()
+
+        self.remote = RemoteControl(settings, controller, add=self._add_from_remote)
+        self.remote.apply()
 
         self.clipboard = ClipboardWatcher(settings, self)
         self.clipboard.linkCaptured.connect(self._on_clipboard_link)
@@ -421,7 +426,7 @@ class MainWindow(QMainWindow):
 
     def paste_url(self) -> None:
         text = (QGuiApplication.clipboard().text() or "").strip()
-        if text.startswith(("http://", "https://")):
+        if is_download_link(text):
             self.add_url(text)
 
     def resume_selected(self) -> None:
@@ -519,6 +524,8 @@ class MainWindow(QMainWindow):
         if dialog.exec() != SettingsDialog.DialogCode.Accepted:
             return
         self.controller.engine.set_speed_limit(self.settings.speed_limit)
+        self.controller.apply_adaptive()
+        self.remote.apply()
         self.controller.engine.max_concurrent = self.settings.max_concurrent
         self.refresh_icons()
         self.action_clipboard.setChecked(bool(self.settings.get("clipboard_monitor")))
@@ -581,6 +588,14 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------- browser / second instance
 
+    def _add_from_remote(self, url: str) -> None:
+        """A link sent from the phone: straight in, no dialog on a desk nobody sits at."""
+        options: dict = {"url": url}
+        if classify(url).is_media:
+            options["max_height"] = self.settings.video_quality
+        self.controller.add(**options)
+        self._notify(tr("Added from the phone"), url)
+
     def handle_ipc_download(self, message: dict) -> None:
         """A link captured by the extension, or handed over by another instance."""
         url = (message.get("url") or "").strip()
@@ -619,7 +634,7 @@ class MainWindow(QMainWindow):
         added = 0
         for entry in message.get("items") or []:
             url = (entry.get("url") or "").strip()
-            if not url.startswith(("http://", "https://")):
+            if not is_download_link(url):
                 continue
             self.controller.add(
                 url, referer=referer, user_agent=user_agent,
@@ -663,7 +678,7 @@ class MainWindow(QMainWindow):
 
     def handle_ipc_show(self, message: dict) -> None:
         for url in message.get("urls", []) or []:
-            if isinstance(url, str) and url.startswith(("http://", "https://")):
+            if is_download_link(url):
                 self.handle_ipc_download({"url": url})
         self.showNormal()
         self.raise_()
@@ -891,7 +906,12 @@ class MainWindow(QMainWindow):
             self.scene.update_downloads(rows_from_items(self.controller.items()))
         speed = self.controller.total_speed()
         active = self.controller.active_count()
-        self.status_speed.setText(human_speed(speed) if active else "")
+        text = human_speed(speed) if active else ""
+        held = self.controller.engine.adaptive_limit
+        if active and held:
+            # Say so: a download that slowed by itself looks broken otherwise.
+            text += f"  ({tr('giving way')}: {human_speed(held)})"
+        self.status_speed.setText(text)
         self.status_count.setText(f"{tr('Downloading')}: {active}")
         if self.tray is not None:
             self.tray.update_tooltip(speed, active)
@@ -1140,7 +1160,7 @@ class MainWindow(QMainWindow):
         if not urls and data.hasText():
             urls = [line.strip() for line in data.text().splitlines() if line.strip()]
         for url in urls:
-            if url.startswith(("http://", "https://")):
+            if is_download_link(url):
                 if self.settings.get("ask_before_download"):
                     self.add_url(url)
                 else:
@@ -1162,6 +1182,7 @@ class MainWindow(QMainWindow):
         self._ticker.stop()
         self.scheduler.stop()
         self.clipboard.stop()
+        self.remote.stop()
         if self.dropbox is not None:
             self.dropbox.save_position()
             self.dropbox.close()

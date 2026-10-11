@@ -734,3 +734,29 @@ def test_owner_alive_can_tell_a_live_pid_from_a_dead_one(ipc_home):
             json.dumps({"port": 1, "token": "x", "pid": parent}), encoding="utf-8"
         )
         assert endpoint.owner_alive() is True
+
+
+MAGNET = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Film"
+
+
+def test_a_clicked_magnet_link_goes_to_the_app_without_cookies(routed):
+    replies = routed["replies"]
+    assert replies["contentMagnet"]["handled"] is True and replies["contentMagnet"]["ok"] is True
+    sent = {m["url"]: m for m in routed["native"]}
+    assert MAGNET in sent
+    assert not sent[MAGNET].get("cookie")
+    assert MAGNET + "&from=popup" in sent
+    queried = {q["url"] for q in routed["cookieQueries"]}
+    assert not any(url.startswith("magnet:") for url in queried)
+
+
+def test_magnet_links_the_extension_leaves_to_the_browser(routed):
+    replies = routed["replies"]
+    # A private window, by default: the browser handles it as it would.
+    assert replies["contentMagnetPrivate"]["handled"] is False
+    assert replies["contentMagnetFake"]["ok"] is False
+    assert replies["contentMagnetNoHash"]["ok"] is False
+    sent = [m["url"] for m in routed["native"]]
+    assert "https://example.com/not-a-magnet" not in sent
+    assert "magnet:?dn=nothing" not in sent
+    assert MAGNET + "&private=1" not in sent

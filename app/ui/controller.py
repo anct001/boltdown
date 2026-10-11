@@ -18,6 +18,7 @@ from ..core.categories import category_for, target_dir
 from ..core.engine import Engine, EngineEvent
 from ..core.profiles import SiteProfile, apply_to, render_folder
 from ..core.profiles import match as match_profile
+from ..core.torrent import magnet_name
 from ..core.resume import ResumeMeta, meta_path_for
 from ..core.task import PART_SUFFIX, DownloadRequest, TaskSnapshot, TaskState
 from ..media.detect import classify, suggested_name
@@ -26,6 +27,7 @@ from ..storage.settings import Settings
 from ..util import filenames, proxy
 from ..util.checksums import Expected, Verdict, parse_expected
 from ..util.credentials import unprotect
+from ..util.links import is_magnet
 from ..util.log import get_logger
 
 log = get_logger(__name__)
@@ -147,6 +149,7 @@ class Controller(QObject):
     # ------------------------------------------------------------- lifecycle
 
     def start(self) -> None:
+        self.apply_adaptive()
         self.engine.start()
         self.restore()
         if self.settings.get("use_system_proxy"):
@@ -239,7 +242,10 @@ class Controller(QObject):
             start_now = False
         save_dir = Path(save_dir) if save_dir else self.folder_for(url, filename)
         chosen = filenames.sanitize(filename) if filename else None
-        guess = chosen or _media_name(url) or filenames.from_url(url) or "download"
+        guess = (
+            chosen or _media_name(url) or magnet_name(url) or filenames.from_url(url)
+            or "download"
+        )
         db_id = self.db.add_download(
             url=url,
             filename=guess,
@@ -465,6 +471,14 @@ class Controller(QObject):
         item.state = TaskState.PAUSED
         self.start_item(db_id)
 
+    def apply_adaptive(self) -> None:
+        """Hand the yield-to-other-traffic settings to the engine."""
+        self.engine.set_adaptive(
+            bool(self.settings.get("adaptive_throttle")),
+            target_ms=float(self.settings.get("adaptive_target_ms") or 75),
+            host=str(self.settings.get("adaptive_host") or "") or None,
+        )
+
     def set_speed_limit(self, limit: int | None) -> None:
         self.engine.set_speed_limit(limit)
         self.settings.set("speed_limit", limit)
@@ -638,6 +652,9 @@ class Controller(QObject):
                 if lang.strip()
             ],
             embed_thumbnail=bool(self.settings.get("embed_thumbnail")),
+            # A .torrent link is a torrent unless the user wants the file
+            # itself; a magnet link is a torrent whatever the setting.
+            torrent=None if self.settings.get("open_torrents") or is_magnet(item.url) else False,
         )
 
     def _delete_files(self, item: DownloadItem) -> None:

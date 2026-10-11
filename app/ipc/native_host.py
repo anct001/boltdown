@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..util.log import get_logger, setup_logging
+from ..util.links import is_download_link
 from . import endpoint
 from .protocol import (
     MAX_BATCH,
@@ -51,9 +52,8 @@ SEQ = "seq"
 
 
 def _is_http(value: Any) -> bool:
-    return isinstance(value, str) and value.strip().lower().startswith(
-        ("http://", "https://")
-    )
+    """Any address the app downloads: web, FTP or a magnet link."""
+    return is_download_link(value)
 
 GUI_EXE_NAME = "Boltdown.exe" if sys.platform == "win32" else "Boltdown"
 

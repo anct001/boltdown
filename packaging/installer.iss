@@ -54,6 +54,7 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "autostart"; Description: "Start Boltdown with Windows (minimised to the tray)"; GroupDescription: "Startup:"; Flags: unchecked
+Name: "magnet"; Description: "Open magnet links with Boltdown"; GroupDescription: "Torrents:"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -70,6 +71,15 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     ValueType: string; ValueName: "Boltdown"; \
     ValueData: """{app}\{#MyAppExeName}"" --tray"; \
     Flags: uninsdeletevalue; Tasks: autostart
+; magnet: links, per user, only when asked for - another torrent client may own them.
+Root: HKCU; Subkey: "Software\Classes\magnet"; ValueType: string; ValueName: ""; \
+    ValueData: "URL:Magnet link"; Flags: uninsdeletekey; Tasks: magnet
+Root: HKCU; Subkey: "Software\Classes\magnet"; ValueType: string; ValueName: "URL Protocol"; \
+    ValueData: ""; Tasks: magnet
+Root: HKCU; Subkey: "Software\Classes\magnet\DefaultIcon"; ValueType: string; ValueName: ""; \
+    ValueData: """{app}\{#MyAppExeName}"",0"; Tasks: magnet
+Root: HKCU; Subkey: "Software\Classes\magnet\shell\open\command"; ValueType: string; ValueName: ""; \
+    ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: magnet
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; \

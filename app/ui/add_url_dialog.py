@@ -30,6 +30,7 @@ from ..storage.settings import Settings
 from ..util import filenames
 from ..util.checksums import parse_expected
 from ..util.fmt import parse_size
+from ..util.links import is_download_link
 from .i18n import tr
 
 #: what happens to each kind of media URL, shown under the quality selector
@@ -223,11 +224,10 @@ class AddUrlDialog(QDialog):
         if not url:
             QMessageBox.warning(self, tr("Add a download"), tr("Enter a URL"))
             return False
-        parsed = urlsplit(url)
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        if not is_download_link(url):
             QMessageBox.warning(
                 self, tr("Add a download"),
-                tr("That does not look like an http(s) URL."),
+                tr("That does not look like a download address (http, https, ftp or magnet)."),
             )
             return False
         try:

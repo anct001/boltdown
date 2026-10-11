@@ -20,6 +20,9 @@ const HOST = "com.boltdown.host";
 const DEFAULTS = {
   enabled: true,
   captureMedia: true,
+  // A click on a magnet link opens it in Boltdown instead of the system's
+  // torrent client.
+  captureMagnets: true,
   showButton: true,
   // A private window is a request not to leave traces; handing its
   // downloads to an application with a history list would ignore that.
@@ -71,6 +74,21 @@ function t(key, substitutions) {
 
 function isHttp(url) {
   return typeof url === "string" && HTTP_URL.test(url);
+}
+
+/** A magnet link that names a torrent - `xt=urn:...` - not just any "magnet:". */
+function isMagnet(url) {
+  return typeof url === "string" && /^magnet:\?/i.test(url) && /[?&]xt=urn:/i.test(url);
+}
+
+/** Something the app downloads: a web address or a torrent's magnet link. */
+function isLink(url) {
+  return isHttp(url) || isMagnet(url);
+}
+
+/** Cookies belong to web addresses; a magnet link has no site to send them to. */
+async function cookieFor(url, where) {
+  return isHttp(url) ? cookieHeader(url, where) : undefined;
 }
 
 function isSitePage(url) {
@@ -683,8 +701,19 @@ async function routeContent(message, sender) {
       // The page entry goes first: on YouTube it is the only one that works.
       return {
         items: page ? [page, ...items] : items,
-        showButton: Boolean(settings.showButton) && !isExcluded(settings, tab.url)
+        showButton: Boolean(settings.showButton) && !isExcluded(settings, tab.url),
+        captureMagnets: magnetsWanted(settings, tab)
       };
+    }
+
+    case "send-magnet": {
+      // Only a click the user made (the page checks `isTrusted`), on a page
+      // where capturing is on; otherwise the browser does what it would have.
+      const settings = await getSettings();
+      if (!magnetsWanted(settings, tab)) return { ok: false, handled: false };
+      if (!isMagnet(message.url)) return { ok: false, error: "not a magnet link" };
+      const response = await sendOne(message.url, tab.url, tab);
+      return Object.assign({ handled: true }, response);
     }
 
     case "send-media": {
@@ -696,6 +725,16 @@ async function routeContent(message, sender) {
     default:
       return { ok: false, error: `not allowed from a page: ${message.type}` };
   }
+}
+
+function magnetsWanted(settings, tab) {
+  return Boolean(
+    settings.enabled &&
+      settings.captureMagnets &&
+      tab &&
+      !isExcluded(settings, tab.url) &&
+      (!tab.incognito || settings.captureIncognito)
+  );
 }
 
 /** Messages from the popup. */
@@ -762,13 +801,13 @@ async function routeExtension(message) {
     }
 
     case "send-url": {
-      if (!isHttp(message.url)) return { ok: false, error: "only http(s) URLs" };
+      if (!isLink(message.url)) return { ok: false, error: "only http(s) and magnet links" };
       const tab = await tabById(message.tabId);
       const response = await sendNative({
         type: "download",
         url: message.url,
         referer: tab && isHttp(tab.url) ? tab.url : undefined,
-        cookie: await cookieHeader(message.url, whereTab(tab)),
+        cookie: await cookieFor(message.url, whereTab(tab)),
         user_agent: navigator.userAgent
       });
       if (!response.ok) notify("Boltdown", response.error || t("unknownError"));
@@ -833,7 +872,7 @@ function collectLinks(selectionOnly) {
     (selection && selection.rangeCount > 0 && selection.containsNode(el, true));
   const found = new Map();
   const add = (url, text) => {
-    if (!url || !/^https?:/i.test(url) || found.has(url)) return;
+    if (!url || !/^(https?:|magnet:)/i.test(url) || found.has(url)) return;
     found.set(url, { url, text: (text || "").replace(/\s+/g, " ").trim().slice(0, 120) });
   };
   for (const a of document.querySelectorAll("a[href]")) {
@@ -853,18 +892,18 @@ async function linksOnPage(tabId, selectionOnly) {
   });
   const found = (results && results[0] && results[0].result) || [];
   return Array.isArray(found)
-    ? found.filter((link) => link && isHttp(link.url))
+    ? found.filter((link) => link && isLink(link.url))
     : [];
 }
 
 /** One link, the way a clicked download goes: the app may ask first. */
 async function sendOne(url, referer, tab) {
-  if (!isHttp(url)) return { ok: false, error: "only http(s) URLs" };
+  if (!isLink(url)) return { ok: false, error: "only http(s) and magnet links" };
   const response = await sendNative({
     type: "download",
     url,
     referer: isHttp(referer) ? referer : undefined,
-    cookie: await cookieHeader(url, whereTab(tab)),
+    cookie: await cookieFor(url, whereTab(tab)),
     user_agent: navigator.userAgent
   });
   if (!response.ok) notify("Boltdown", response.error || t("unknownError"));
@@ -882,8 +921,8 @@ async function sendLinks(urls, referer, tab) {
   const where = whereTab(tab);
   const items = [];
   for (const url of urls) {
-    if (!isHttp(url)) continue;
-    const cookie = await cookieHeader(url, where);
+    if (!isLink(url)) continue;
+    const cookie = await cookieFor(url, where);
     items.push(cookie ? { url, cookie } : { url });
   }
   let sent = 0;

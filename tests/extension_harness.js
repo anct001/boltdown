@@ -215,6 +215,12 @@ if (mode === "sniff") {
   ask("popupSettings", { type: "set-settings", patch: { enabled: "yes", bogus: 1, minSize: 5 } }, POPUP);
   ask("popupPrivateUrl", { type: "send-url", tabId: 4, url: "https://example.com/private.zip" }, POPUP);
   ask("popupJs", { type: "send-url", tabId: 3, url: "javascript:alert(1)" }, POPUP);
+  // Magnet links: a click on a page, the popup, and what must not pass.
+  ask("contentMagnet", { type: "send-magnet", url: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Film" }, PAGE(3));
+  ask("contentMagnetPrivate", { type: "send-magnet", url: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Film&private=1" }, PAGE(4));
+  ask("contentMagnetFake", { type: "send-magnet", url: "https://example.com/not-a-magnet" }, PAGE(3));
+  ask("contentMagnetNoHash", { type: "send-magnet", url: "magnet:?dn=nothing" }, PAGE(3));
+  ask("popupMagnet", { type: "send-url", tabId: 3, url: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Film&from=popup" }, POPUP);
 } else {
   // This is how a browser announces a download.
   chrome.downloads.onCreated.fn(item);

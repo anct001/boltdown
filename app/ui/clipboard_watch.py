@@ -21,6 +21,7 @@ from PySide6.QtGui import QGuiApplication
 
 from ..storage.settings import Settings
 from ..util.log import get_logger
+from ..util.links import is_download_link, is_magnet
 
 log = get_logger(__name__)
 
@@ -45,8 +46,12 @@ def link_in(text: str | None, extensions: tuple[str, ...] = ()) -> str | None:
     candidate = text.strip()
     if len(candidate.split()) != 1 or "\n" in candidate:
         return None
-    if not candidate.lower().startswith(("http://", "https://")):
+    if not is_download_link(candidate):
         return None
+    if is_magnet(candidate):
+        # A copied magnet link is a torrent and nothing else; no extension
+        # to check it against.
+        return candidate
     if extensions and extension_of(candidate) not in extensions:
         return None
     return candidate

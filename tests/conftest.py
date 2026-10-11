@@ -53,3 +53,33 @@ def sha256(data: bytes | Path) -> str:
                 digest.update(block)
         return digest.hexdigest()
     return hashlib.sha256(data).hexdigest()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Take Qt down before Python does.
+
+    Left to interpreter shutdown, the QApplication and the widgets the GUI
+    tests made are destroyed in whatever order Python finalises modules;
+    from PySide6 6.12 that order can delete a QObject Qt still holds
+    ("shared QObject was deleted directly") and the run segfaults after
+    every test has passed. So: close the windows, run the deferred deletes,
+    collect, and shut the application down explicitly.
+    """
+    import gc
+    import sys
+
+    if "PySide6.QtWidgets" not in sys.modules:
+        return
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+    gc.collect()
+    app.shutdown()

@@ -78,6 +78,9 @@
   "popupDetect": {
     "message": "Detect videos on pages"
   },
+  "popupMagnets": {
+    "message": "Open magnet links in Boltdown"
+  },
   "popupShowButton": {
     "message": "Show the floating button"
   },

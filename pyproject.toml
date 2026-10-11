@@ -15,8 +15,12 @@ media = [
     "yt-dlp>=2024.1.0",     # extracts direct URLs; we do the downloading
     "cryptography>=42",     # AES-128 decryption for encrypted HLS segments
 ]
+torrent = [
+    "libtorrent>=2.0",      # magnet links and .torrent files
+]
 packaging = [
     "pyinstaller>=6.0",     # scripts/build.py; Inno Setup is a separate install
+    "libtorrent>=2.0",      # so the packaged app downloads torrents
 ]
 dev = [
     "pytest>=8.0",
@@ -24,6 +28,7 @@ dev = [
     "PySide6-Essentials>=6.6",
     "yt-dlp>=2024.1.0",
     "cryptography>=42",
+    "libtorrent>=2.0",
 ]
 
 [project.scripts]
